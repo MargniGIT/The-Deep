@@ -56,7 +56,7 @@ export default function BiomeBackground({ depth }: BiomeBackgroundProps) {
             transition: {
               duration: randomDuration,
               repeat: Infinity,
-              ease: 'easeInOut',
+              ease: 'easeInOut' as const,
               delay: randomDelay
             }
           }
@@ -75,7 +75,7 @@ export default function BiomeBackground({ depth }: BiomeBackgroundProps) {
             transition: {
               duration: randomDuration,
               repeat: Infinity,
-              ease: 'linear',
+              ease: 'linear' as const,
               delay: randomDelay
             }
           }
@@ -94,7 +94,7 @@ export default function BiomeBackground({ depth }: BiomeBackgroundProps) {
             transition: {
               duration: randomDuration,
               repeat: Infinity,
-              ease: 'easeInOut',
+              ease: 'easeInOut' as const,
               delay: randomDelay
             }
           }
@@ -113,7 +113,7 @@ export default function BiomeBackground({ depth }: BiomeBackgroundProps) {
             transition: {
               duration: randomDuration,
               repeat: Infinity,
-              ease: 'linear',
+              ease: 'linear' as const,
               delay: randomDelay
             }
           }
