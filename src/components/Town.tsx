@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Home, Bed, ArrowLeft, Store, Coins, Trash2, Hammer, Anvil, Swords, ArrowUp, Trophy, Pencil, Check } from 'lucide-react';
+import { X, Home, Bed, ArrowLeft, Store, Coins, Trash2, Hammer, Anvil, Swords, ArrowUp, Trophy, Pencil, Check, ChevronsDown } from 'lucide-react';
 import type { PlayerProfile, InventoryItem } from '@/types';
 import { supabase } from '@/lib/supabase';
 
@@ -13,7 +13,7 @@ interface TownProps {
 
 export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }: TownProps) {
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<'main' | 'merchant' | 'forge' | 'trainer' | 'leaderboard'>('main');
+  const [view, setView] = useState<'main' | 'merchant' | 'forge' | 'trainer' | 'leaderboard' | 'travel'>('main');
   const [sellItems, setSellItems] = useState<InventoryItem[]>([]);
   const [scrapCount, setScrapCount] = useState(0);
   const [message, setMessage] = useState('');
@@ -23,6 +23,18 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
 
   // Helper function to calculate training cost
   const getTrainingCost = (bought: number) => 100 * (bought + 1);
+
+  // Helper function to calculate available checkpoints
+  const getCheckpoints = (): number[] => {
+    if (!player || !player.max_depth) return [];
+    const checkpointCount = Math.floor(player.max_depth / 500);
+    return Array.from({ length: checkpointCount }, (_, i) => (i + 1) * 500);
+  };
+
+  // Helper function to calculate travel cost
+  const getTravelCost = (depth: number): number => {
+    return Math.floor(depth * 0.5 + (depth * depth) / 10000);
+  };
 
   // --- FETCH ITEMS ---
   const loadSellableItems = async () => {
@@ -351,6 +363,37 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
     }
   };
 
+  const handleWarp = async (targetDepth: number) => {
+    if (!userId) return;
+
+    const cost = getTravelCost(targetDepth);
+    
+    if (player.gold < cost) {
+      setMessage("You don't have enough gold!");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const newGold = player.gold - cost;
+      const { error } = await supabase
+        .from('profiles')
+        .update({ depth: targetDepth, gold: newGold })
+        .eq('id', userId);
+
+      if (error) throw error;
+
+      setMessage(`Warped to ${targetDepth}m depth.`);
+      onRest({ depth: targetDepth, gold: newGold });
+      onClose(); // Close Town after warping
+    } catch (err) {
+      console.error(err);
+      setMessage("Failed to warp.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // --- RENDER ---
 
   const commonCount = sellItems.filter(i => i.item.rarity === 'common').length;
@@ -370,7 +413,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
             <Home className="text-yellow-500" size={24} />
             <div className="flex-1">
               <h2 className="text-2xl font-bold text-zinc-100">
-                {isCampsite && view === 'main' ? 'Temporary Camp' : view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : view === 'trainer' ? 'Combat Trainer' : 'Hall of Records'}
+                {isCampsite && view === 'main' ? 'Temporary Camp' : view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : view === 'trainer' ? 'Combat Trainer' : view === 'travel' ? 'Abyssal Elevator' : 'Hall of Records'}
               </h2>
               {view === 'main' && (
                 <div className="flex items-center gap-2 mt-1">
@@ -546,6 +589,19 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
               </button>
 
               <button
+                onClick={() => { setView('travel'); setMessage(''); }}
+                className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
+              >
+                <div className="bg-zinc-800 p-3 rounded text-cyan-500 group-hover:text-cyan-400">
+                  <ChevronsDown size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg">Abyssal Elevator</h3>
+                  <p className="text-zinc-500 text-sm">Fast Travel to Checkpoints</p>
+                </div>
+              </button>
+
+              <button
                 onClick={() => { setView('leaderboard'); setMessage(''); }}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
@@ -709,6 +765,61 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
             })}
           </div>
         </div>
+        )}
+
+        {/* --- VIEW: TRAVEL --- */}
+        {view === 'travel' && !isCampsite && (
+          <div className="flex flex-col gap-4 pb-4 pr-2">
+            <div className="text-center space-y-2 mb-4">
+              <ChevronsDown size={48} className="text-cyan-500 mx-auto" />
+              <h3 className="text-xl font-bold text-zinc-300">Select Depth</h3>
+              <p className="text-zinc-500 text-sm max-w-xs mx-auto">
+                Fast travel to unlocked checkpoints.
+              </p>
+            </div>
+
+            {getCheckpoints().length === 0 ? (
+              <div className="text-zinc-500 text-center py-10">
+                Reach 500m to unlock the elevator.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {getCheckpoints().map((checkpointDepth) => {
+                  const cost = getTravelCost(checkpointDepth);
+                  const canAfford = player.gold >= cost;
+                  
+                  return (
+                    <div
+                      key={checkpointDepth}
+                      className="bg-zinc-900 p-4 rounded-lg border border-zinc-800 flex items-center justify-between gap-4"
+                    >
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-zinc-300 uppercase tracking-wider mb-1">
+                          {checkpointDepth}m
+                        </div>
+                        <div className="text-lg font-bold text-zinc-100 flex items-center gap-2">
+                          <Coins size={16} className="text-yellow-500" />
+                          {cost} Gold
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleWarp(checkpointDepth)}
+                        disabled={loading || !canAfford}
+                        className={`px-4 py-2 rounded text-sm font-semibold flex items-center gap-2 transition-all ${
+                          canAfford && !loading
+                            ? 'bg-cyan-900/50 hover:bg-cyan-800 text-cyan-200 border border-cyan-700'
+                            : 'bg-zinc-800 text-zinc-600 border border-zinc-700 opacity-50 cursor-not-allowed'
+                        }`}
+                      >
+                        <ChevronsDown size={14} />
+                        <span>WARP</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
 
         {/* --- VIEW: LEADERBOARD --- */}

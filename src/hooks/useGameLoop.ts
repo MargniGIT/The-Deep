@@ -73,6 +73,9 @@ export function useGameLoop(
   const checkForGhosts = useCallback(async (depth: number): Promise<void> => {
     if (!userId) return;
     
+    // Only check for ghosts 15% of the time (rare occurrence)
+    if (Math.random() > 0.15) return;
+    
     try {
       const { data: ghostUsers } = await supabase
         .from('profiles')
@@ -254,63 +257,74 @@ export function useGameLoop(
 
       // 3. LOOT (71-85%) - The "Treasure"
       else if (roll <= 85) {
-        const { data: validItems } = await supabase
-          .from('items')
-          .select('*')
-          .lte('min_depth', newDepth)
-          .gte('max_depth', newDepth)
-          .limit(10);
+        // Check inventory limit before adding items
+        const { count: currentInventoryCount } = await supabase
+          .from('inventory')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', userId);
 
-        const randomItem = validItems && validItems.length > 0
-          ? validItems[Math.floor(Math.random() * validItems.length)]
-          : null;
-
-        if (randomItem) {
-          // --- AFFIX GENERATION (Only for weapons and armor) ---
-          const shouldHaveAffixes = randomItem.type === 'weapon' || randomItem.type === 'armor';
-
-          let fullName = randomItem.name;
-          let combinedStats = randomItem.stats || {};
-          if (shouldHaveAffixes) {
-            const prefix = PREFIXES[Math.floor(Math.random() * PREFIXES.length)];
-            const suffix = SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)];
-            // Merge Stats
-            const baseStats = randomItem.stats || {};
-            combinedStats = { ...baseStats };
-
-            // Add prefix stats
-            Object.entries(prefix.stats).forEach(([key, val]) => {
-              if (val !== undefined) {
-                combinedStats[key] = (combinedStats[key] || 0) + val;
-              }
-            });
-
-            // Add suffix stats
-            Object.entries(suffix.stats).forEach(([key, val]) => {
-              if (val !== undefined) {
-                combinedStats[key] = (combinedStats[key] || 0) + val;
-              }
-            });
-
-            // Construct Name
-            fullName = `${prefix.name} ${randomItem.name} ${suffix.name}`;
-          }
-          const { error } = await supabase.from('inventory').insert({
-            user_id: userId,
-            item_id: randomItem.id,
-            is_equipped: false,
-            slot: randomItem.valid_slot || null,
-            name_override: shouldHaveAffixes ? fullName : null,
-            stats_override: shouldHaveAffixes ? combinedStats : null
-          });
-          if (!error) {
-            logMessage = `You found a ${fullName}!`;
-            onEffect('item');
-          } else {
-            logMessage = `You saw a ${randomItem.name}, but couldn't reach it.`;
-          }
+        const INVENTORY_LIMIT = 30;
+        if ((currentInventoryCount || 0) >= INVENTORY_LIMIT) {
+          logMessage = "Your inventory is full! You can't carry any more items.";
         } else {
-          logMessage = "You found nothing but dust.";
+          const { data: validItems } = await supabase
+            .from('items')
+            .select('*')
+            .lte('min_depth', newDepth)
+            .gte('max_depth', newDepth)
+            .limit(10);
+
+          const randomItem = validItems && validItems.length > 0
+            ? validItems[Math.floor(Math.random() * validItems.length)]
+            : null;
+
+          if (randomItem) {
+            // --- AFFIX GENERATION (Only for weapons and armor) ---
+            const shouldHaveAffixes = randomItem.type === 'weapon' || randomItem.type === 'armor';
+
+            let fullName = randomItem.name;
+            let combinedStats = randomItem.stats || {};
+            if (shouldHaveAffixes) {
+              const prefix = PREFIXES[Math.floor(Math.random() * PREFIXES.length)];
+              const suffix = SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)];
+              // Merge Stats
+              const baseStats = randomItem.stats || {};
+              combinedStats = { ...baseStats };
+
+              // Add prefix stats
+              Object.entries(prefix.stats).forEach(([key, val]) => {
+                if (val !== undefined) {
+                  combinedStats[key] = (combinedStats[key] || 0) + val;
+                }
+              });
+
+              // Add suffix stats
+              Object.entries(suffix.stats).forEach(([key, val]) => {
+                if (val !== undefined) {
+                  combinedStats[key] = (combinedStats[key] || 0) + val;
+                }
+              });
+
+              // Construct Name
+              fullName = `${prefix.name} ${randomItem.name} ${suffix.name}`;
+            }
+            const { error } = await supabase.from('inventory').insert({
+              user_id: userId,
+              item_id: randomItem.id,
+              is_equipped: false,
+              slot: randomItem.valid_slot || null,
+              name_override: shouldHaveAffixes ? fullName : null,
+              stats_override: shouldHaveAffixes ? combinedStats : null
+            });
+            if (!error) {
+              logMessage = `You found a ${fullName}!`;
+              onEffect('item');
+            } else {
+              logMessage = `You saw a ${randomItem.name}, but couldn't reach it.`;
+            }
+          } else {
+            logMessage = "You found nothing but dust.";
+          }
         }
       }
 
@@ -515,54 +529,65 @@ export function useGameLoop(
 
       // Loot Table: 60% Materials, 20% Nothing, 20% Combat
       if (roll <= 60) {
-        // 60% chance: Find Materials (prioritize type='material')
-        const { data: materialItems } = await supabase
-          .from('items')
-          .select('*')
-          .eq('type', 'material')
-          .lte('min_depth', currentDepth)
-          .gte('max_depth', currentDepth)
-          .limit(10);
+        // Check inventory limit before adding items
+        const { count: currentInventoryCount } = await supabase
+          .from('inventory')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', userId);
 
-        if (materialItems && materialItems.length > 0) {
-          const randomMaterial = materialItems[Math.floor(Math.random() * materialItems.length)];
-          const { error } = await supabase.from('inventory').insert({
-            user_id: userId,
-            item_id: randomMaterial.id,
-            is_equipped: false,
-            slot: randomMaterial.valid_slot || null
-          });
-          if (!error) {
-            logMessage = `You found a ${randomMaterial.name}!`;
-            onEffect('item');
-          } else {
-            logMessage = "You found something, but couldn't pick it up.";
-          }
+        const INVENTORY_LIMIT = 30;
+        if ((currentInventoryCount || 0) >= INVENTORY_LIMIT) {
+          logMessage = "Your inventory is full! You can't carry any more items.";
         } else {
-          // Fallback: any item if no materials available
-          const { data: fallbackItems } = await supabase
+          // 60% chance: Find Materials (prioritize type='material')
+          const { data: materialItems } = await supabase
             .from('items')
             .select('*')
+            .eq('type', 'material')
             .lte('min_depth', currentDepth)
             .gte('max_depth', currentDepth)
             .limit(10);
-          
-          if (fallbackItems && fallbackItems.length > 0) {
-            const randomItem = fallbackItems[Math.floor(Math.random() * fallbackItems.length)];
+
+          if (materialItems && materialItems.length > 0) {
+            const randomMaterial = materialItems[Math.floor(Math.random() * materialItems.length)];
             const { error } = await supabase.from('inventory').insert({
               user_id: userId,
-              item_id: randomItem.id,
+              item_id: randomMaterial.id,
               is_equipped: false,
-              slot: randomItem.valid_slot || null
+              slot: randomMaterial.valid_slot || null
             });
             if (!error) {
-              logMessage = `You found a ${randomItem.name}!`;
+              logMessage = `You found a ${randomMaterial.name}!`;
               onEffect('item');
             } else {
               logMessage = "You found something, but couldn't pick it up.";
             }
           } else {
-            logMessage = "You searched thoroughly but found nothing.";
+            // Fallback: any item if no materials available
+            const { data: fallbackItems } = await supabase
+              .from('items')
+              .select('*')
+              .lte('min_depth', currentDepth)
+              .gte('max_depth', currentDepth)
+              .limit(10);
+            
+            if (fallbackItems && fallbackItems.length > 0) {
+              const randomItem = fallbackItems[Math.floor(Math.random() * fallbackItems.length)];
+              const { error } = await supabase.from('inventory').insert({
+                user_id: userId,
+                item_id: randomItem.id,
+                is_equipped: false,
+                slot: randomItem.valid_slot || null
+              });
+              if (!error) {
+                logMessage = `You found a ${randomItem.name}!`;
+                onEffect('item');
+              } else {
+                logMessage = "You found something, but couldn't pick it up.";
+              }
+            } else {
+              logMessage = "You searched thoroughly but found nothing.";
+            }
           }
         }
       } else if (roll <= 80) {
