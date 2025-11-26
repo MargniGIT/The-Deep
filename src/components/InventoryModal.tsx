@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { useInventory } from '@/hooks/useInventory';
 import { X, Shield, Sword, Box } from 'lucide-react';
 import type { InventoryItem } from '@/types';
+import ItemIcon from './ItemIcon';
 
 interface InventoryModalProps {
   userId: string | null;
@@ -119,9 +120,7 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
                         : 'bg-zinc-950 border-zinc-800 text-zinc-600'
                         }`}
                     >
-                      {entry.item.valid_slot === 'main_hand' ? <Sword size={20} /> :
-                        entry.item.valid_slot === 'chest' ? <Shield size={20} /> :
-                          <Box size={20} />}
+                      <ItemIcon slug={entry.item.icon_slug} className="w-8 h-8" />
                     </div>
 
                     {/* Item Details */}

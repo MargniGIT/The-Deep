@@ -1137,6 +1137,43 @@ export function useGameLoop(
           
           // Achievement: Boss Slayer (defeat a boss)
           unlockAchievement('boss_slayer', 'Boss Slayer', 'Defeated your first boss');
+          
+          // Rat King guaranteed drop
+          if (activeBoss.name === 'The Rat King') {
+            // Find Rat Hide Vest by name
+            const { data: ratHideVest } = await supabase
+              .from('items')
+              .select('*')
+              .eq('name', 'Rat Hide Vest')
+              .single();
+            
+            if (ratHideVest) {
+              // Check inventory limit
+              const { count: currentInventoryCount } = await supabase
+                .from('inventory')
+                .select('*', { count: 'exact', head: true })
+                .eq('user_id', userId);
+              
+              const INVENTORY_LIMIT = 30;
+              if ((currentInventoryCount || 0) < INVENTORY_LIMIT) {
+                const { error: insertError } = await supabase
+                  .from('inventory')
+                  .insert({
+                    user_id: userId,
+                    item_id: ratHideVest.id,
+                    is_equipped: false,
+                    slot: ratHideVest.valid_slot
+                  });
+                
+                if (!insertError) {
+                  addLog('The King drops his vestment! [SET ITEM]');
+                  onEffect('item');
+                }
+              } else {
+                addLog('The King drops his vestment! [SET ITEM] (Inventory Full)');
+              }
+            }
+          }
         }
       } else {
         // Defeat - trigger death logic

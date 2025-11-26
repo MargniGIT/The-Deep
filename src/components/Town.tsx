@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { X, Home, Bed, ArrowLeft, Store, Coins, Trash2, Hammer, Anvil, Swords, ArrowUp, Trophy, Pencil, Check, ChevronsDown, Lock } from 'lucide-react';
 import type { PlayerProfile, InventoryItem } from '@/types';
 import { supabase } from '@/lib/supabase';
@@ -21,6 +21,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
   const [leaderboard, setLeaderboard] = useState<PlayerProfile[]>([]);
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState('');
+  const [ingredientCounts, setIngredientCounts] = useState<Record<string, Record<string, { have: number; need: number }>>>({});
 
   // Helper function to calculate training cost
   const getTrainingCost = (bought: number) => 100 * (bought + 1);
@@ -36,6 +37,22 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
   const getTravelCost = (depth: number): number => {
     return Math.floor(depth * 0.5 + (depth * depth) / 10000);
   };
+
+  // --- RECIPES ---
+  const RECIPES = [
+    { 
+      name: 'Rat Skull Helm', 
+      result_item: 'Rat Skull Helm', // Matches DB Name
+      ingredients: [{ name: 'Rat Tail', count: 3 }, { name: 'Scrap Metal', count: 2 }],
+      cost: 10 
+    },
+    { 
+      name: 'Bone Shin Guards', 
+      result_item: 'Bone Shin Guards', 
+      ingredients: [{ name: 'Rat Bone', count: 3 }, { name: 'Scrap Metal', count: 2 }],
+      cost: 10 
+    }
+  ];
 
   // --- FETCH ITEMS ---
   const loadSellableItems = async () => {
@@ -78,11 +95,39 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
     }
   };
 
+  // Load ingredient counts for recipes
+  const loadIngredientCounts = useCallback(async () => {
+    if (!userId) return;
+    
+    const counts: Record<string, Record<string, { have: number; need: number }>> = {};
+    
+    for (const recipe of RECIPES) {
+      const recipeCounts: Record<string, { have: number; need: number }> = {};
+      
+      for (const ingredient of recipe.ingredients) {
+        const { data: items } = await supabase
+          .from('inventory')
+          .select('*, item:items(*)')
+          .eq('user_id', userId);
+        
+        const count = items?.filter(i => i.item?.name === ingredient.name).length || 0;
+        recipeCounts[ingredient.name] = { have: count, need: ingredient.count };
+      }
+      
+      counts[recipe.name] = recipeCounts;
+    }
+    
+    setIngredientCounts(counts);
+  }, [userId]);
+
   useEffect(() => {
     if (view === 'merchant') loadSellableItems();
-    if (view === 'forge') loadScrapCount();
+    if (view === 'forge') {
+      loadScrapCount();
+      loadIngredientCounts();
+    }
     if (view === 'leaderboard') loadLeaderboard();
-  }, [view]);
+  }, [view, loadScrapCount, loadIngredientCounts, loadSellableItems, loadLeaderboard]);
 
   // Reset view to main when switching to campsite mode (to prevent accessing merchant/forge)
   useEffect(() => {
@@ -293,71 +338,104 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
   };
 
   // --- CRAFTING LOGIC ---
-  const handleCraft = async () => {
+  const handleCraft = async (recipe: typeof RECIPES[0]) => {
     if (!userId) return;
 
-    if (scrapCount < 5) {
-      setMessage("Not enough Scrap Metal (Need 5).");
+    // Validation: Check gold
+    if (player.gold < recipe.cost) {
+      setMessage(`Not enough gold! Need ${recipe.cost} gold.`);
       return;
+    }
+
+    // Validation: Check ingredients
+    const ingredientCounts: Record<string, number> = {};
+    for (const ingredient of recipe.ingredients) {
+      // Fetch all inventory items and join with items table
+      const { data: items } = await supabase
+        .from('inventory')
+        .select('*, item:items(*)')
+        .eq('user_id', userId);
+      
+      // Filter by name and count
+      const count = items?.filter(i => i.item?.name === ingredient.name).length || 0;
+      ingredientCounts[ingredient.name] = count;
+      
+      if (count < ingredient.count) {
+        setMessage(`Not enough ${ingredient.name}! Need ${ingredient.count}, have ${count}.`);
+        return;
+      }
     }
 
     setLoading(true);
     try {
-      // 1. Deduct 5 Scrap Metal
-      // Since we can't easily delete "top 5", we fetch 5 IDs first
-      const { data: scrapItems } = await supabase
-        .from('inventory')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('item_id', '1000')
-        .limit(5);
+      // 1. Deduct Gold
+      const newGold = player.gold - recipe.cost;
+      const { error: goldError } = await supabase
+        .from('profiles')
+        .update({ gold: newGold })
+        .eq('id', userId);
+      
+      if (goldError) throw goldError;
 
-      if (!scrapItems || scrapItems.length < 5) {
-        throw new Error("Not enough scrap found in DB check.");
+      // 2. Delete required ingredients
+      for (const ingredient of recipe.ingredients) {
+        // Fetch items by name (join with items table)
+        const { data: items } = await supabase
+          .from('inventory')
+          .select('id, item:items(*)')
+          .eq('user_id', userId);
+        
+        if (!items) continue;
+        
+        // Filter by name and get IDs
+        const matchingItems = items
+          .filter((i: any) => i.item?.name === ingredient.name)
+          .slice(0, ingredient.count)
+          .map((i: any) => i.id);
+        
+        if (matchingItems.length < ingredient.count) {
+          throw new Error(`Not enough ${ingredient.name} found during deletion.`);
+        }
+        
+        // Delete the items
+        const { error: delError } = await supabase
+          .from('inventory')
+          .delete()
+          .in('id', matchingItems);
+        
+        if (delError) throw delError;
       }
 
-      const scrapIds = scrapItems.map(i => i.id);
-      const { error: delError } = await supabase
-        .from('inventory')
-        .delete()
-        .in('id', scrapIds);
-
-      if (delError) throw delError;
-
-      // 2. Select Random Item (Tier 1 or 2)
-      // We assume items have a 'tier' column or we filter by rarity/depth.
-      // User said "Tier 1 or 2 gear only". 
-      // I'll assume 'min_depth' correlates to tier or just pick random common/uncommon.
-      // Let's try fetching items with min_depth <= 200 (assuming depth correlates to tier).
-      // Or just fetch all items and filter in memory if needed, but better to filter in query.
-      // Assuming 'tier' column might not exist, I'll use rarity 'common' or 'uncommon'.
-      const { data: potentialLoot } = await supabase
+      // 3. Find result item by name
+      const { data: resultItem } = await supabase
         .from('items')
         .select('*')
-        .or('rarity.eq.common,rarity.eq.uncommon')
-        .neq('type', 'material') // Ignore materials
-        .limit(20);
+        .eq('name', recipe.result_item)
+        .single();
 
-      if (!potentialLoot || potentialLoot.length === 0) {
-        throw new Error("No loot table available.");
+      if (!resultItem) {
+        throw new Error(`Result item "${recipe.result_item}" not found in database.`);
       }
 
-      const randomItem = potentialLoot[Math.floor(Math.random() * potentialLoot.length)];
-
-      // 3. Insert New Item
+      // 4. Insert result item into inventory
       const { error: insertError } = await supabase
         .from('inventory')
         .insert({
           user_id: userId,
-          item_id: randomItem.id,
+          item_id: resultItem.id,
           is_equipped: false,
-          slot: randomItem.valid_slot
+          slot: resultItem.valid_slot
         });
 
       if (insertError) throw insertError;
 
-      setMessage(`Crafted: ${randomItem.name}!`);
-      setScrapCount(prev => prev - 5);
+      setMessage(`Crafted ${recipe.name}!`);
+      onRest({ gold: newGold });
+      
+      // Reload scrap count if it changed
+      if (recipe.ingredients.some(ing => ing.name === 'Scrap Metal')) {
+        loadScrapCount();
+      }
 
     } catch (err: unknown) {
       console.error(err);
@@ -687,28 +765,69 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
         {/* --- VIEW: FORGE --- (Only available at depth 0) */}
         {view === 'forge' && !isCampsite && (
-          <div className="flex flex-col items-center justify-center gap-6 pb-4">
-          <div className="text-center space-y-2">
+          <div className="flex flex-col gap-4 pb-4 pr-2">
+          <div className="text-center space-y-2 mb-4">
             <Anvil size={48} className="text-zinc-700 mx-auto" />
             <h3 className="text-xl font-bold text-zinc-300">Blacksmith&apos;s Forge</h3>
             <p className="text-zinc-500 text-sm max-w-xs mx-auto">
-              Smelt down scrap metal to forge new equipment.
+              Craft specific gear using recipes and materials.
             </p>
           </div>
 
-          <div className="bg-zinc-900 p-6 rounded-lg border border-zinc-800 w-full max-w-xs text-center">
-            <div className="text-sm text-zinc-500 mb-1 uppercase tracking-wider font-bold">Available Scrap</div>
-            <div className="text-3xl font-black text-zinc-100 mb-4">{scrapCount}</div>
+          {RECIPES.map((recipe) => {
+            const recipeCounts = ingredientCounts[recipe.name] || {};
+            let canCraft = true;
+            
+            // Check if all ingredients are available
+            for (const ingredient of recipe.ingredients) {
+              const status = recipeCounts[ingredient.name] || { have: 0, need: ingredient.count };
+              if (status.have < status.need) {
+                canCraft = false;
+                break;
+              }
+            }
+            
+            // Also check gold
+            canCraft = canCraft && (player?.gold || 0) >= recipe.cost;
 
-            <button
-              onClick={handleCraft}
-              disabled={loading || scrapCount < 5}
-              className="w-full bg-red-900/50 hover:bg-red-800 text-red-200 border border-red-800 p-4 rounded font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            >
-              <Hammer size={20} />
-              CRAFT GEAR (5 Scrap)
-            </button>
-          </div>
+            return (
+              <div key={recipe.name} className="bg-zinc-900 p-4 rounded-lg border border-zinc-800">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="bg-zinc-800 p-2 rounded">
+                    <Hammer size={20} className="text-red-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-bold text-lg text-zinc-200">{recipe.name}</h4>
+                  </div>
+                </div>
+
+                <div className="space-y-2 mb-4">
+                  {recipe.ingredients.map((ingredient) => {
+                    const status = recipeCounts[ingredient.name] || { have: 0, need: ingredient.count };
+                    const hasEnough = status.have >= status.need;
+                    
+                    return (
+                      <div key={ingredient.name} className="flex items-center justify-between text-sm">
+                        <span className="text-zinc-400">{ingredient.name}</span>
+                        <span className={hasEnough ? 'text-green-400' : 'text-red-400'}>
+                          {status.have}/{status.need}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button
+                  onClick={() => handleCraft(recipe)}
+                  disabled={loading || !canCraft}
+                  className="w-full bg-red-900/50 hover:bg-red-800 text-red-200 border border-red-800 p-3 rounded font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  <Hammer size={18} />
+                  Forge ({recipe.cost} G)
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
