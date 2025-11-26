@@ -3,15 +3,14 @@ import { X, Home, Bed, ArrowLeft, Store, Coins, Trash2, Hammer, Anvil } from 'lu
 import type { PlayerProfile, InventoryItem } from '@/types';
 import { supabase } from '@/lib/supabase';
 
-const HARDCODED_USER_ID = '123e4567-e89b-12d3-a456-426614174000';
-
 interface TownProps {
+  userId: string | null;
   player: PlayerProfile | null;
   onClose: () => void;
   onRest: (updates: Partial<PlayerProfile>) => void;
 }
 
-export default function Town({ player, onClose, onRest }: TownProps) {
+export default function Town({ userId, player, onClose, onRest }: TownProps) {
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<'main' | 'merchant' | 'forge'>('main');
   const [sellItems, setSellItems] = useState<InventoryItem[]>([]);
@@ -20,20 +19,24 @@ export default function Town({ player, onClose, onRest }: TownProps) {
 
   // --- FETCH ITEMS ---
   const loadSellableItems = async () => {
+    if (!userId) return;
+
     const { data } = await supabase
       .from('inventory')
       .select('*, item:items(*)')
-      .eq('user_id', HARDCODED_USER_ID)
+      .eq('user_id', userId)
       .eq('is_equipped', false);
 
     if (data) setSellItems(data as unknown as InventoryItem[]);
   };
 
   const loadScrapCount = async () => {
+    if (!userId) return;
+
     const { count, error } = await supabase
       .from('inventory')
       .select('*', { count: 'exact', head: true })
-      .eq('user_id', HARDCODED_USER_ID)
+      .eq('user_id', userId)
       .eq('item_id', '1000'); // ID 1000 is Scrap Metal
 
     if (!error) setScrapCount(count || 0);
@@ -49,6 +52,8 @@ export default function Town({ player, onClose, onRest }: TownProps) {
   // --- ACTIONS ---
 
   const handleRest = async () => {
+    if (!userId) return;
+
     if (player.gold < 10) {
       setMessage("You don't have enough gold!");
       return;
@@ -57,7 +62,7 @@ export default function Town({ player, onClose, onRest }: TownProps) {
     try {
       const { error } = await supabase.from('profiles')
         .update({ gold: player.gold - 10, current_stamina: player.max_stamina, vigor: player.max_stamina })
-        .eq('id', HARDCODED_USER_ID);
+        .eq('id', userId);
 
       if (error) throw error;
       setMessage("Restored HP & Stamina.");
@@ -67,13 +72,20 @@ export default function Town({ player, onClose, onRest }: TownProps) {
   };
 
   const handleSell = async (inventoryId: number, itemValue: number, itemName: string) => {
+    if (!userId) return;
+
+    if (!userId) return;
+
     setLoading(true);
     try {
       const { error: delError } = await supabase.from('inventory').delete().eq('id', inventoryId);
       if (delError) throw delError;
 
       const newGold = player.gold + itemValue;
-      const { error: upError } = await supabase.from('profiles').update({ gold: newGold }).eq('id', HARDCODED_USER_ID);
+      const { error: upError } = await supabase
+        .from('profiles')
+        .update({ gold: newGold })
+        .eq('id', userId);
       if (upError) throw upError;
 
       setMessage(`Sold ${itemName} for ${itemValue} Gold.`);
@@ -85,6 +97,8 @@ export default function Town({ player, onClose, onRest }: TownProps) {
   };
 
   const handleBulkSell = async () => {
+    if (!userId) return;
+
     const commonItems = sellItems.filter((i) => i.item.rarity === 'common');
     if (commonItems.length === 0) {
       setMessage("No common items to sell.");
@@ -112,7 +126,7 @@ export default function Town({ player, onClose, onRest }: TownProps) {
       const { error: upError } = await supabase
         .from('profiles')
         .update({ gold: newGold })
-        .eq('id', HARDCODED_USER_ID);
+        .eq('id', userId);
 
       if (upError) throw upError;
 
@@ -130,6 +144,8 @@ export default function Town({ player, onClose, onRest }: TownProps) {
 
   // --- CRAFTING LOGIC ---
   const handleCraft = async () => {
+    if (!userId) return;
+
     if (scrapCount < 5) {
       setMessage("Not enough Scrap Metal (Need 5).");
       return;
@@ -142,7 +158,7 @@ export default function Town({ player, onClose, onRest }: TownProps) {
       const { data: scrapItems } = await supabase
         .from('inventory')
         .select('id')
-        .eq('user_id', HARDCODED_USER_ID)
+        .eq('user_id', userId)
         .eq('item_id', '1000')
         .limit(5);
 
@@ -182,7 +198,7 @@ export default function Town({ player, onClose, onRest }: TownProps) {
       const { error: insertError } = await supabase
         .from('inventory')
         .insert({
-          user_id: HARDCODED_USER_ID,
+          user_id: userId,
           item_id: randomItem.id,
           is_equipped: false,
           slot: randomItem.valid_slot
@@ -368,3 +384,7 @@ export default function Town({ player, onClose, onRest }: TownProps) {
     </div>
   );
 }
+
+
+
+

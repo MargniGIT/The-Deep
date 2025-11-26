@@ -4,26 +4,26 @@ import { useInventory } from '@/hooks/useInventory';
 import { X, Shield, Sword, Box } from 'lucide-react';
 import type { InventoryItem } from '@/types';
 
-// The ID we are pretending to be
-const HARDCODED_USER_ID = '123e4567-e89b-12d3-a456-426614174000';
-
 interface InventoryModalProps {
+  userId: string | null;
   isOpen: boolean;
   onClose: () => void;
 }
 
-export default function InventoryModal({ isOpen, onClose }: InventoryModalProps) {
+export default function InventoryModal({ userId, isOpen, onClose }: InventoryModalProps) {
   const [items, setItems] = useState<InventoryItem[]>([]);
 
-  const { equipItem, unequipItem, scrapItem, loading: actionLoading } = useInventory();
+  const { equipItem, unequipItem, scrapItem, loading: actionLoading } = useInventory(userId);
 
   // Fetch Inventory from DB
   const loadInventory = useCallback(async () => {
+    if (!userId) return;
+
     // Join with items table to get names/stats
     const { data, error } = await supabase
       .from('inventory')
       .select('*, item:items(*)')
-      .eq('user_id', HARDCODED_USER_ID)
+      .eq('user_id', userId)
       .order('is_equipped', { ascending: false }); // Equipped items first
 
     if (error) {
@@ -31,7 +31,7 @@ export default function InventoryModal({ isOpen, onClose }: InventoryModalProps)
     } else {
       setItems((data as unknown as InventoryItem[]) || []);
     }
-  }, []);
+  }, [userId]);
 
   // Reload when opening or when an action completes
   useEffect(() => {

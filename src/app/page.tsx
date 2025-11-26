@@ -65,7 +65,7 @@ export default function Home() {
     }
   }, []);
 
-  const { handleDescend, handleStatUpgrade, logs, loading: loopLoading } = useGameLoop(
+  const { handleDescend, handleStatUpgrade, handleGoldUpgrade, logs, loading: loopLoading } = useGameLoop(
     player, 
     (p) => setPlayer(p), 
     handleEffect 
@@ -117,7 +117,11 @@ export default function Home() {
       </div>
 
       <header className="p-4 border-b border-zinc-800 bg-zinc-900/50">
-        <StatsDisplay profile={player} onUpgrade={handleStatUpgrade} />
+        <StatsDisplay
+          profile={player}
+          onUpgrade={handleStatUpgrade}
+          onGoldUpgrade={handleGoldUpgrade}
+        />
         <div className="flex gap-4 mt-3 text-sm">
           <div className="flex items-center gap-2 text-red-400"><Sword size={16} /><span className="font-bold">{derivedStats.attack} ATK</span></div>
           <div className="flex items-center gap-2 text-blue-400"><Shield size={16} /><span className="font-bold">{derivedStats.defense} DEF</span></div>
@@ -126,8 +130,19 @@ export default function Home() {
 
       <section className="flex-1 overflow-hidden relative">
         <GameLog logs={logs} />
-        {isTownOpen && <Town player={player} onClose={() => setIsTownOpen(false)} onRest={(u) => setPlayer({ ...player, ...u })} />}
-        <InventoryModal isOpen={isInventoryOpen} onClose={() => setIsInventoryOpen(false)} />
+        {isTownOpen && (
+          <Town
+            userId={HARDCODED_USER_ID}
+            player={player}
+            onClose={() => setIsTownOpen(false)}
+            onRest={(u) => setPlayer({ ...player, ...u })}
+          />
+        )}
+        <InventoryModal
+          userId={HARDCODED_USER_ID}
+          isOpen={isInventoryOpen}
+          onClose={() => setIsInventoryOpen(false)}
+        />
       </section>
 
       <footer className="p-4 border-t border-zinc-800 bg-zinc-900 grid grid-cols-3 gap-2">

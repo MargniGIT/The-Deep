@@ -4,6 +4,7 @@ import { Heart, Zap, Coins, ArrowDown, Plus, Star } from 'lucide-react';
 interface StatsProps {
   profile: PlayerProfile;
   onUpgrade?: (stat: 'vigor' | 'precision' | 'aether') => void;
+  onGoldUpgrade?: (stat: 'vigor' | 'precision' | 'aether') => void;
 }
 
 // THE NEW BIOME HELPER
@@ -14,7 +15,9 @@ function getBiomeName(depth: number) {
   return "The Void";
 }
 
-export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
+const GOLD_UPGRADE_COST = 200;
+
+export default function StatsDisplay({ profile, onUpgrade, onGoldUpgrade }: StatsProps) {
   if (!profile) return null;
 
   const hpPercent = Math.min(100, (profile.vigor / profile.max_stamina) * 100);
@@ -88,9 +91,14 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
       {/* Stats Buttons */}
       <div className="grid grid-cols-3 gap-2 text-center">
         {['vigor', 'precision', 'aether'].map((stat) => (
-          <div key={stat} className="bg-zinc-900 p-2 rounded border border-zinc-800 flex flex-col items-center relative group">
+          <div
+            key={stat}
+            className="bg-zinc-900 p-2 rounded border border-zinc-800 flex flex-col items-center relative group"
+          >
             <span className="text-[10px] uppercase text-zinc-500 tracking-wider">{stat}</span>
-            <span className="font-bold text-lg text-zinc-200">{profile[stat as keyof PlayerProfile]}</span>
+            <span className="font-bold text-lg text-zinc-200">
+              {profile[stat as keyof PlayerProfile]}
+            </span>
 
             {profile.stat_points > 0 && onUpgrade && (
               <button
@@ -98,6 +106,21 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
                 className="absolute -top-2 -right-2 bg-yellow-500 text-black rounded-full p-1 shadow-lg hover:scale-110 transition-transform hover:bg-yellow-400"
               >
                 <Plus size={12} strokeWidth={4} />
+              </button>
+            )}
+
+            {onGoldUpgrade && (
+              <button
+                onClick={() => onGoldUpgrade(stat as 'vigor' | 'precision' | 'aether')}
+                disabled={profile.gold < GOLD_UPGRADE_COST}
+                className={`mt-2 flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border ${
+                  profile.gold >= GOLD_UPGRADE_COST
+                    ? 'border-yellow-500 text-yellow-400 hover:bg-yellow-500/10 transition-colors'
+                    : 'border-zinc-700 text-zinc-600 opacity-60 cursor-not-allowed'
+                }`}
+              >
+                <Coins size={10} />
+                <span>{GOLD_UPGRADE_COST}</span>
               </button>
             )}
           </div>

@@ -3,6 +3,8 @@ import { supabase } from '@/lib/supabase';
 import type { PlayerProfile } from '@/types';
 
 const HARDCODED_USER_ID = '123e4567-e89b-12d3-a456-426614174000';
+const GOLD_UPGRADE_COST = 200;
+const MAX_LEVEL = 50;
 
 // --- HORROR TEXT POOLS ---
 const SHALLOW_LOGS = [
@@ -75,6 +77,29 @@ export function useGameLoop(
     if (!error) {
       onProfileUpdate({ ...player, ...newStats });
       addLog(`You increased your ${statName.toUpperCase()}!`);
+    }
+  }, [player, onProfileUpdate, addLog]);
+
+  const handleGoldUpgrade = useCallback(async (statName: 'vigor' | 'precision' | 'aether') => {
+    if (!player) return;
+
+    const currentGold = player.gold || 0;
+    if (currentGold < GOLD_UPGRADE_COST) return;
+
+    const newStats: Partial<PlayerProfile> = {
+      [statName]: (player[statName] || 0) + 1,
+      gold: currentGold - GOLD_UPGRADE_COST,
+      max_stamina: statName === 'vigor' ? player.max_stamina + 5 : player.max_stamina,
+    };
+
+    const { error } = await supabase
+      .from('profiles')
+      .update(newStats)
+      .eq('id', HARDCODED_USER_ID);
+
+    if (!error) {
+      onProfileUpdate({ ...player, ...newStats });
+      addLog(`You invested ${GOLD_UPGRADE_COST} gold to increase your ${statName.toUpperCase()}!`);
     }
   }, [player, onProfileUpdate, addLog]);
 
@@ -220,7 +245,7 @@ export function useGameLoop(
 
       // Level & Death Checks
       const xpNeeded = newLevel * 100;
-      if (newXP >= xpNeeded) {
+      if (newLevel < MAX_LEVEL && newXP >= xpNeeded) {
         newLevel++; newXP -= xpNeeded; newStatPoints += 3;
         newVigor = player.max_stamina; newStamina = player.max_stamina;
         logMessage += " LEVEL UP!";
@@ -242,5 +267,5 @@ export function useGameLoop(
     finally { setLoading(false); }
   }, [player, loading, addLog, onProfileUpdate, onEffect]);
 
-  return { handleDescend, handleStatUpgrade, logs, loading };
+  return { handleDescend, handleStatUpgrade, handleGoldUpgrade, logs, loading };
 }

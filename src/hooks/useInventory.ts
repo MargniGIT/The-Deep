@@ -1,14 +1,13 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
-// The ID we are pretending to be
-const HARDCODED_USER_ID = '123e4567-e89b-12d3-a456-426614174000';
-
-export function useInventory() {
+export function useInventory(userId: string | null) {
   const [loading, setLoading] = useState(false);
 
   // Function to Equip an Item
   const equipItem = useCallback(async (itemId: number, targetSlot: string) => {
+    if (!userId) return false;
+
     setLoading(true);
     try {
       console.log(`Attempting to equip Item ${itemId} into ${targetSlot}...`);
@@ -17,7 +16,7 @@ export function useInventory() {
       const { error: unequipError } = await supabase
         .from('inventory')
         .update({ is_equipped: false })
-        .eq('user_id', HARDCODED_USER_ID)
+        .eq('user_id', userId)
         .eq('slot', targetSlot);
 
       if (unequipError) throw unequipError;
@@ -26,7 +25,7 @@ export function useInventory() {
       const { error: equipError } = await supabase
         .from('inventory')
         .update({ is_equipped: true, slot: targetSlot })
-        .eq('user_id', HARDCODED_USER_ID)
+        .eq('user_id', userId)
         .eq('id', itemId);
 
       if (equipError) throw equipError;
@@ -40,16 +39,17 @@ export function useInventory() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId]);
 
   // Function to Unequip
   const unequipItem = useCallback(async (itemId: number) => {
+    if (!userId) return false;
     setLoading(true);
     try {
       const { error } = await supabase
         .from('inventory')
         .update({ is_equipped: false })
-        .eq('user_id', HARDCODED_USER_ID)
+        .eq('user_id', userId)
         .eq('id', itemId);
 
       if (error) throw error;
@@ -60,10 +60,11 @@ export function useInventory() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId]);
 
   // Function to Scrap Item
   const scrapItem = useCallback(async (itemId: number) => {
+    if (!userId) return false;
     setLoading(true);
     try {
       // 1. Check if Scrap Metal item exists in DB
@@ -83,18 +84,16 @@ export function useInventory() {
         .from('inventory')
         .delete()
         .eq('id', itemId)
-        .eq('user_id', HARDCODED_USER_ID);
+        .eq('user_id', userId);
 
       if (deleteError) throw deleteError;
 
       // 3. Add Scrap Metal (ID: 1000)
-      const { error: insertError } = await supabase
-        .from('inventory')
-        .insert({
-          user_id: HARDCODED_USER_ID,
-          item_id: '1000', // Using '1000' as string ID for Scrap Metal
-          is_equipped: false
-        });
+      const { error: insertError } = await supabase.from('inventory').insert({
+        user_id: userId,
+        item_id: '1000', // Using '1000' as string ID for Scrap Metal
+        is_equipped: false,
+      });
 
       if (insertError) throw insertError;
 
@@ -105,7 +104,11 @@ export function useInventory() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId]);
 
   return { equipItem, unequipItem, scrapItem, loading };
 }
+
+
+
+
