@@ -12,6 +12,7 @@ interface InventoryModalProps {
 
 export default function InventoryModal({ userId, isOpen, onClose }: InventoryModalProps) {
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const [inspectId, setInspectId] = useState<number | null>(null);
   const { equipItem, unequipItem, scrapItem, loading: actionLoading } = useInventory(userId);
 
   // Fetch Inventory
@@ -84,31 +85,46 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
                 return (
                   <div
                     key={entry.id}
-                    className={`flex items-center p-3 rounded border transition-colors ${entry.is_equipped
+                    className={`flex items-center p-3 rounded border transition-colors relative ${entry.is_equipped
                       ? 'bg-zinc-900 border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.1)]'
                       : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
                       }`}
                   >
-                    {/* Icon Box */}
-                    <div className={`w-12 h-12 rounded flex items-center justify-center mr-4 border shrink-0 ${entry.is_equipped
-                      ? 'bg-green-950/30 border-green-500/30 text-green-400'
-                      : 'bg-zinc-950 border-zinc-800 text-zinc-600'
-                      }`}>
+                    {/* Icon Box - Clickable */}
+                    <div 
+                      onClick={() => setInspectId(inspectId === entry.id ? null : entry.id)}
+                      className={`w-12 h-12 rounded flex items-center justify-center mr-4 border shrink-0 cursor-pointer transition-all hover:scale-105 ${entry.is_equipped
+                        ? 'bg-green-950/30 border-green-500/30 text-green-400'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-600'
+                        }`}
+                    >
                       {entry.item.valid_slot === 'main_hand' ? <Sword size={20} /> :
                         entry.item.valid_slot === 'chest' ? <Shield size={20} /> :
                           <Box size={20} />}
                     </div>
 
                     {/* Item Details */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`font-bold truncate text-sm ${entry.item.rarity === 'rare' ? 'text-blue-400' :
+                    <div className="flex-1 min-w-0 relative">
+                      {/* Dark Overlay when inspecting */}
+                      {inspectId === entry.id && (
+                        <div 
+                          onClick={() => setInspectId(null)}
+                          className="absolute inset-0 bg-black/90 backdrop-blur-sm rounded z-10 flex items-center justify-center p-4 animate-in fade-in duration-200 cursor-pointer"
+                        >
+                          <p className="text-zinc-400 italic text-sm text-center">
+                            {entry.item.description || 'No description'}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2 mb-1 min-w-0">
+                        <span className={`font-bold truncate text-sm flex-1 min-w-0 ${entry.item.rarity === 'rare' ? 'text-blue-400' :
                           entry.item.rarity === 'uncommon' ? 'text-green-400' : 'text-zinc-200'
                           }`}>
                           {entry.name_override || entry.item.name}
                         </span>
                         {entry.is_equipped && (
-                          <span className="text-[10px] bg-green-500/10 text-green-400 px-1.5 py-0.5 rounded border border-green-500/20 font-bold tracking-wider">
+                          <span className="text-[10px] bg-green-500/10 text-green-400 px-1.5 py-0.5 rounded border border-green-500/20 font-bold tracking-wider shrink-0">
                             EQUIPPED
                           </span>
                         )}
@@ -131,6 +147,7 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
                         {/* Generic Badge for other stats (like Value or Regen) */}
                         {Object.entries(stats).map(([key, value]) => {
                           if (key === 'damage' || key === 'defense') return null; // Skip ones we already showed
+                          if (value === 0 || value === null || value === undefined) return null; // Don't show zero or null values
                           return (
                             <span key={key} className="flex items-center gap-1 text-[10px] text-zinc-400 bg-zinc-800/50 px-1.5 py-0.5 rounded">
                               <span className="capitalize">{key}:</span> {String(value)}

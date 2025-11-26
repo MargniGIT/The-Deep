@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Home, Bed, ArrowLeft, Store, Coins, Trash2, Hammer, Anvil, Swords, ArrowUp, Trophy, Pencil, Check, ChevronsDown } from 'lucide-react';
+import { X, Home, Bed, ArrowLeft, Store, Coins, Trash2, Hammer, Anvil, Swords, ArrowUp, Trophy, Pencil, Check, ChevronsDown, Lock } from 'lucide-react';
 import type { PlayerProfile, InventoryItem } from '@/types';
 import { supabase } from '@/lib/supabase';
 
@@ -9,11 +9,12 @@ interface TownProps {
   onClose: () => void;
   onRest: (updates: Partial<PlayerProfile>) => void;
   onGoldUpgrade?: (stat: 'vigor' | 'precision' | 'aether') => void;
+  onBankTransaction?: (amount: number) => void;
 }
 
-export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }: TownProps) {
+export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, onBankTransaction }: TownProps) {
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<'main' | 'merchant' | 'forge' | 'trainer' | 'leaderboard' | 'travel'>('main');
+  const [view, setView] = useState<'main' | 'merchant' | 'forge' | 'trainer' | 'leaderboard' | 'travel' | 'vault'>('main');
   const [sellItems, setSellItems] = useState<InventoryItem[]>([]);
   const [scrapCount, setScrapCount] = useState(0);
   const [message, setMessage] = useState('');
@@ -116,13 +117,14 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
     }
     setLoading(true);
     try {
+      const maxHealth = player.max_health ?? player.max_stamina ?? 100;
       const { error } = await supabase.from('profiles')
-        .update({ gold: player.gold - 10, current_stamina: player.max_stamina, vigor: player.max_stamina })
+        .update({ gold: player.gold - 10, current_stamina: player.max_stamina, health: maxHealth, max_health: maxHealth })
         .eq('id', userId);
 
       if (error) throw error;
       setMessage("Restored HP & Stamina.");
-      onRest({ gold: player.gold - 10, current_stamina: player.max_stamina, vigor: player.max_stamina });
+      onRest({ gold: player.gold - 10, current_stamina: player.max_stamina, health: maxHealth, max_health: maxHealth });
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
@@ -155,17 +157,19 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
       const isAmbushed = Math.random() < 0.3;
       
       if (isAmbushed) {
-        // Ambush: Take 10-20 damage (Vigor) and gain NO stamina
+        // Ambush: Take 10-20 damage and gain NO stamina
         const damage = Math.floor(Math.random() * 11) + 10; // 10-20 damage
-        const newVigor = Math.max(0, (player.vigor || player.max_stamina) - damage);
+        const currentHealth = player.health ?? player.vigor ?? player.max_health ?? player.max_stamina ?? 100;
+        const maxHealth = player.max_health ?? player.max_stamina ?? 100;
+        const newHealth = Math.max(0, currentHealth - damage);
         
         const { error } = await supabase.from('profiles')
-          .update({ vigor: newVigor })
+          .update({ health: newHealth })
           .eq('id', userId);
 
         if (error) throw error;
         setMessage("Something attacked you in your sleep!");
-        onRest({ vigor: newVigor });
+        onRest({ health: newHealth });
       } else {
         // Safe sleep: +20 Stamina
         const newStamina = Math.min(player.max_stamina, (player.current_stamina || 0) + 20);
@@ -366,7 +370,9 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
   const handleWarp = async (targetDepth: number) => {
     if (!userId) return;
 
-    const cost = getTravelCost(targetDepth);
+    const baseCost = getTravelCost(targetDepth);
+    const discount = Math.min(0.5, (player.aether || 0) * 0.01); // 1% per point, max 50%
+    const cost = Math.floor(baseCost * (1 - discount));
     
     if (player.gold < cost) {
       setMessage("You don't have enough gold!");
@@ -420,7 +426,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
             <Home className="text-yellow-500" size={24} />
             <div className="flex-1">
               <h2 className="text-2xl font-bold text-zinc-100">
-                {isCampsite && view === 'main' ? 'Temporary Camp' : view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : view === 'trainer' ? 'Combat Trainer' : view === 'travel' ? 'Abyssal Elevator' : 'Hall of Records'}
+                {isCampsite && view === 'main' ? 'Temporary Camp' : view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : view === 'trainer' ? 'Combat Trainer' : view === 'travel' ? 'Abyssal Elevator' : view === 'vault' ? 'Iron Vault' : 'Hall of Records'}
               </h2>
               {view === 'main' && (
                 <div className="flex items-center gap-2 mt-1">
@@ -609,6 +615,19 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
               </button>
 
               <button
+                onClick={() => { setView('vault'); setMessage(''); }}
+                className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
+              >
+                <div className="bg-zinc-800 p-3 rounded text-amber-600 group-hover:text-amber-500">
+                  <Lock size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg">Iron Vault</h3>
+                  <p className="text-zinc-500 text-sm">Secure Gold Storage</p>
+                </div>
+              </button>
+
+              <button
                 onClick={() => { setView('leaderboard'); setMessage(''); }}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
@@ -792,8 +811,11 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
             ) : (
               <div className="space-y-3">
                 {getCheckpoints().map((checkpointDepth) => {
-                  const cost = getTravelCost(checkpointDepth);
+                  const baseCost = getTravelCost(checkpointDepth);
+                  const discount = Math.min(0.5, (player.aether || 0) * 0.01); // 1% per point, max 50%
+                  const cost = Math.floor(baseCost * (1 - discount));
                   const canAfford = player.gold >= cost;
+                  const hasDiscount = discount > 0;
                   
                   return (
                     <div
@@ -804,9 +826,16 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
                         <div className="text-sm font-bold text-zinc-300 uppercase tracking-wider mb-1">
                           {checkpointDepth}m
                         </div>
-                        <div className="text-lg font-bold text-zinc-100 flex items-center gap-2">
+                        <div className="text-lg font-bold flex items-center gap-2">
                           <Coins size={16} className="text-yellow-500" />
-                          {cost} Gold
+                          {hasDiscount ? (
+                            <span className="flex items-center gap-2">
+                              <span className="text-zinc-500 line-through">{baseCost}</span>
+                              <span className="text-green-400">{cost} Gold</span>
+                            </span>
+                          ) : (
+                            <span className="text-zinc-100">{cost} Gold</span>
+                          )}
                         </div>
                       </div>
                       <button
@@ -826,6 +855,176 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* --- VIEW: VAULT --- */}
+        {view === 'vault' && !isCampsite && (
+          <div className="flex flex-col gap-6 pb-4 pr-2">
+            <div className="text-center space-y-2 mb-4">
+              <Lock size={48} className="text-amber-600 mx-auto" />
+              <h3 className="text-xl font-bold text-zinc-300">Iron Vault</h3>
+              <p className="text-zinc-500 text-sm max-w-xs mx-auto">
+                Secure your gold. Vault storage persists after death.
+              </p>
+            </div>
+
+            {/* Balance Display */}
+            <div className="bg-zinc-900 p-6 rounded-lg border border-zinc-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-500 text-sm font-bold uppercase tracking-wider">Pocket</span>
+                <span className="text-xl font-bold text-zinc-100 flex items-center gap-1">
+                  {player.gold || 0} <Coins size={18} />
+                </span>
+              </div>
+              <div className="h-px bg-zinc-800"></div>
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-500 text-sm font-bold uppercase tracking-wider">Vault</span>
+                <span className="text-2xl font-black text-amber-500 flex items-center gap-1">
+                  {player.bank_gold || 0} <Coins size={20} />
+                </span>
+              </div>
+            </div>
+
+            {/* Deposit Section */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Deposit</h4>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={async () => {
+                    if (!onBankTransaction || loading) return;
+                    const amount = 100;
+                    if ((player.gold || 0) < amount) {
+                      setMessage("Not enough gold!");
+                      return;
+                    }
+                    setLoading(true);
+                    await onBankTransaction(amount);
+                    setLoading(false);
+                  }}
+                  disabled={loading || (player.gold || 0) < 100}
+                  className={`px-4 py-3 rounded-lg font-semibold transition-all ${
+                    (player.gold || 0) >= 100 && !loading
+                      ? 'bg-green-900/50 hover:bg-green-800 text-green-200 border border-green-700'
+                      : 'bg-zinc-800 text-zinc-600 border border-zinc-700 opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  100
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!onBankTransaction || loading) return;
+                    const amount = 1000;
+                    if ((player.gold || 0) < amount) {
+                      setMessage("Not enough gold!");
+                      return;
+                    }
+                    setLoading(true);
+                    await onBankTransaction(amount);
+                    setLoading(false);
+                  }}
+                  disabled={loading || (player.gold || 0) < 1000}
+                  className={`px-4 py-3 rounded-lg font-semibold transition-all ${
+                    (player.gold || 0) >= 1000 && !loading
+                      ? 'bg-green-900/50 hover:bg-green-800 text-green-200 border border-green-700'
+                      : 'bg-zinc-800 text-zinc-600 border border-zinc-700 opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  1000
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!onBankTransaction || loading) return;
+                    const amount = player.gold || 0;
+                    if (amount <= 0) {
+                      setMessage("No gold to deposit!");
+                      return;
+                    }
+                    setLoading(true);
+                    await onBankTransaction(amount);
+                    setLoading(false);
+                  }}
+                  disabled={loading || (player.gold || 0) <= 0}
+                  className={`px-4 py-3 rounded-lg font-semibold transition-all ${
+                    (player.gold || 0) > 0 && !loading
+                      ? 'bg-green-900/50 hover:bg-green-800 text-green-200 border border-green-700'
+                      : 'bg-zinc-800 text-zinc-600 border border-zinc-700 opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  ALL
+                </button>
+              </div>
+            </div>
+
+            {/* Withdraw Section */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Withdraw</h4>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={async () => {
+                    if (!onBankTransaction || loading) return;
+                    const amount = -100;
+                    if ((player.bank_gold || 0) < 100) {
+                      setMessage("Not enough gold in vault!");
+                      return;
+                    }
+                    setLoading(true);
+                    await onBankTransaction(amount);
+                    setLoading(false);
+                  }}
+                  disabled={loading || (player.bank_gold || 0) < 100}
+                  className={`px-4 py-3 rounded-lg font-semibold transition-all ${
+                    (player.bank_gold || 0) >= 100 && !loading
+                      ? 'bg-blue-900/50 hover:bg-blue-800 text-blue-200 border border-blue-700'
+                      : 'bg-zinc-800 text-zinc-600 border border-zinc-700 opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  100
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!onBankTransaction || loading) return;
+                    const amount = -1000;
+                    if ((player.bank_gold || 0) < 1000) {
+                      setMessage("Not enough gold in vault!");
+                      return;
+                    }
+                    setLoading(true);
+                    await onBankTransaction(amount);
+                    setLoading(false);
+                  }}
+                  disabled={loading || (player.bank_gold || 0) < 1000}
+                  className={`px-4 py-3 rounded-lg font-semibold transition-all ${
+                    (player.bank_gold || 0) >= 1000 && !loading
+                      ? 'bg-blue-900/50 hover:bg-blue-800 text-blue-200 border border-blue-700'
+                      : 'bg-zinc-800 text-zinc-600 border border-zinc-700 opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  1000
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!onBankTransaction || loading) return;
+                    const amount = -(player.bank_gold || 0);
+                    if (amount >= 0) {
+                      setMessage("No gold in vault!");
+                      return;
+                    }
+                    setLoading(true);
+                    await onBankTransaction(amount);
+                    setLoading(false);
+                  }}
+                  disabled={loading || (player.bank_gold || 0) <= 0}
+                  className={`px-4 py-3 rounded-lg font-semibold transition-all ${
+                    (player.bank_gold || 0) > 0 && !loading
+                      ? 'bg-blue-900/50 hover:bg-blue-800 text-blue-200 border border-blue-700'
+                      : 'bg-zinc-800 text-zinc-600 border border-zinc-700 opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  ALL
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

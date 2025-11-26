@@ -75,7 +75,8 @@ export interface PlayerProfile {
   depth: number;
   max_depth?: number;
   gold: number;
-  vigor: number;
+  bank_gold?: number; // Gold stored in the Vault (persists after death)
+  vigor: number; // Stat points for vigor
   precision: number;
   aether: number;
   current_stamina: number;
@@ -86,6 +87,8 @@ export interface PlayerProfile {
   stat_points: number;
   stats_bought?: number;
   is_admin?: boolean;
+  health?: number; // Current health (separate from vigor stat)
+  max_health?: number; // Max health (separate from max_stamina)
 }
 
 // --- Add this block to src/types/index.ts ---
@@ -93,6 +96,7 @@ export interface PlayerProfile {
 export interface BaseItem {
   id: number;
   name: string;
+  description: string | null;
   type: string;
   rarity: string;
   valid_slot: string | null; // <--- This is the missing link

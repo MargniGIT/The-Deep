@@ -110,13 +110,17 @@ export function useGameLoop(
     }
 
     const fetchGrave = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('graves')
         .select('depth')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
-      if (data) {
+      if (error) {
+        // Silently handle errors - don't interrupt gameplay
+        console.error('Error fetching grave:', error);
+        setGraveDepth(null);
+      } else if (data) {
         setGraveDepth(data.depth);
       } else {
         setGraveDepth(null);
@@ -191,6 +195,65 @@ export function useGameLoop(
     }
   }, [userId, player, onProfileUpdate, addLog]);
 
+  const handleBankTransaction = useCallback(async (amount: number) => {
+    if (!userId) {
+      console.error('No user ID found');
+      return;
+    }
+    if (!player) return;
+
+    const currentGold = player.gold || 0;
+    const currentBankGold = player.bank_gold || 0;
+
+    // Positive amount = Deposit
+    if (amount > 0) {
+      if (currentGold < amount) {
+        addLog(`Not enough gold! You have ${currentGold} gold.`);
+        return;
+      }
+
+      const newGold = currentGold - amount;
+      const newBankGold = currentBankGold + amount;
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ gold: newGold, bank_gold: newBankGold })
+        .eq('id', userId);
+
+      if (!error) {
+        onProfileUpdate({ ...player, gold: newGold, bank_gold: newBankGold });
+        addLog(`Deposited ${amount} Gold.`);
+      } else {
+        console.error('Error updating profile:', error);
+        addLog('Failed to deposit gold.');
+      }
+    }
+    // Negative amount = Withdraw
+    else if (amount < 0) {
+      const withdrawAmount = Math.abs(amount);
+      if (currentBankGold < withdrawAmount) {
+        addLog(`Not enough gold in vault! You have ${currentBankGold} gold.`);
+        return;
+      }
+
+      const newGold = currentGold + withdrawAmount;
+      const newBankGold = currentBankGold - withdrawAmount;
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ gold: newGold, bank_gold: newBankGold })
+        .eq('id', userId);
+
+      if (!error) {
+        onProfileUpdate({ ...player, gold: newGold, bank_gold: newBankGold });
+        addLog(`Withdrew ${withdrawAmount} Gold.`);
+      } else {
+        console.error('Error updating profile:', error);
+        addLog('Failed to withdraw gold.');
+      }
+    }
+  }, [userId, player, onProfileUpdate, addLog]);
+
   const handleDescend = useCallback(async () => {
     if (!userId) {
       console.error('No user ID found');
@@ -205,7 +268,11 @@ export function useGameLoop(
       let newDepth = (player.depth || 0) + 1;
       let newStamina = player.current_stamina || 0;
       let newGold = player.gold || 0;
-      let newVigor = player.vigor; // Trust the profile value
+      // Use health if available, otherwise fall back to vigor, then max_health, then max_stamina
+      let currentHealth = player.health ?? player.vigor ?? player.max_health ?? player.max_stamina ?? 100;
+      let maxHealth = player.max_health ?? player.max_stamina ?? 100;
+      let newHealth = currentHealth;
+      let newVigor = player.vigor; // Keep vigor as stat, but also track health separately
       let newXP = player.xp || 0;
       let newLevel = player.level || 1;
       let newStatPoints = player.stat_points || 0;
@@ -216,6 +283,9 @@ export function useGameLoop(
       
       // Track all-time best depth
       const newMaxDepth = Math.max(newDepth, player.max_depth || 0);
+
+      // --- AETHER GOLD MULTIPLIER ---
+      const goldMult = 1 + ((player.aether || 0) * 0.05); // 5% bonus per Aether point
 
       // --- GRAVE DISCOVERY CHECK ---
       if (graveDepth !== null && newDepth === graveDepth) {
@@ -230,7 +300,7 @@ export function useGameLoop(
       // If you keep descending with no stamina, you take HP damage instead.
       if (player.current_stamina <= 0) {
         exhaustionDamage = 10; // Explicit stamina punishment: 10 damage
-        newVigor = Math.max(0, newVigor - exhaustionDamage);
+        newHealth = Math.max(0, newHealth - exhaustionDamage);
         onEffect('damage', exhaustionDamage);
         addLog('[!] You collapse from exhaustion. (-10 HP)');
         // Stamina stays at 0 when exhausted
@@ -249,9 +319,15 @@ export function useGameLoop(
 
       // 2. GOLD (41-70%) - The "Scavenge"
       else if (roll <= 70) {
-        const goldFound = Math.floor(Math.random() * 10) + 5;
+        const baseGold = Math.floor(Math.random() * 10) + 5;
+        const goldFound = Math.floor(baseGold * goldMult);
+        const bonus = goldFound - baseGold;
         newGold += goldFound;
-        logMessage = `You found a vein of gold! (+${goldFound} Gold)`;
+        if (bonus > 0) {
+          logMessage = `You found a vein of gold! (+${goldFound} G [Bonus +${bonus}])`;
+        } else {
+          logMessage = `You found a vein of gold! (+${goldFound} Gold)`;
+        }
         onEffect('gold', goldFound);
       }
 
@@ -338,7 +414,7 @@ export function useGameLoop(
         const monster = monsters?.length ? monsters[Math.floor(Math.random() * monsters.length)] : null;
 
         if (!monster) {
-          newVigor = Math.max(0, newVigor - 2);
+          newHealth = Math.max(0, newHealth - 2);
           logMessage = "You tripped on a rock! (-2 HP)";
           onEffect('damage', 2);
         } else {
@@ -352,7 +428,8 @@ export function useGameLoop(
 
           // Calculate player total stats safely
           const playerTotalAtk = (player.precision || 0) + bonusAtk;
-          const playerTotalDef = (player.vigor || 0) + bonusDef;
+          // Defense should only come from equipment, not from vigor (health)
+          const playerTotalDef = bonusDef;
 
           // SAFE COMBAT MATH: Prevent Infinity and division by zero
           // Crit multiplier (10% chance for 2x damage)
@@ -363,21 +440,26 @@ export function useGameLoop(
           const dmgToMonster = Math.max(1, Math.floor((playerTotalAtk - monster.defense) * critMultiplier));
           
           // Clamp damage to player: Never allow 0 or negative
+          // Ensure minimum 1 damage is always taken
           const dmgToPlayer = Math.max(1, monster.attack - playerTotalDef);
           
           // Calculate combat rounds safely
           const hitsToKill = Math.ceil(monster.hp / dmgToMonster);
           const totalDmgTaken = hitsToKill * dmgToPlayer;
 
-          newVigor = Math.max(0, newVigor - totalDmgTaken);
+          newHealth = Math.max(0, newHealth - totalDmgTaken);
 
-          if (newVigor > 0) {
-            newGold += monster.gold_reward;
+          if (newHealth > 0) {
+            const baseGoldReward = monster.gold_reward;
+            const goldReward = Math.floor(baseGoldReward * goldMult);
+            const bonus = goldReward - baseGoldReward;
+            newGold += goldReward;
             newXP += monster.xp_reward;
             const critText = critMultiplier > 1 ? ' [CRIT!]' : '';
+            const bonusText = bonus > 0 ? ` [Bonus +${bonus} G]` : '';
             logMessage = `Defeated ${monster.name}!${critText} Took ${totalDmgTaken} dmg.`;
             onEffect('damage', totalDmgTaken);
-            setTimeout(() => onEffect('gold', monster.gold_reward), 200);
+            setTimeout(() => onEffect('gold', goldReward), 200);
             setTimeout(() => onEffect('xp', monster.xp_reward), 400);
           } else {
             // Mark combat death and store monster name
@@ -393,17 +475,17 @@ export function useGameLoop(
       const xpNeeded = newLevel * 100;
       if (newLevel < MAX_LEVEL && newXP >= xpNeeded) {
         newLevel++; newXP -= xpNeeded; newStatPoints += 3;
-        newVigor = player.max_stamina; newStamina = player.max_stamina;
+        newHealth = maxHealth; newStamina = player.max_stamina;
         logMessage += " LEVEL UP!";
         onEffect('xp', 0);
       }
       
       // Check for death from exhaustion (after all other damage)
-      if (newVigor <= 0 && deathCause !== 'combat') {
+      if (newHealth <= 0 && deathCause !== 'combat') {
         deathCause = 'exhaustion';
       }
       
-      if (newVigor <= 0) {
+      if (newHealth <= 0) {
         // --- DEATH LOGIC: Hardcore Corpse Retrieval ---
         const currentDepth = player.depth || 0;
         const currentGold = player.gold || 0;
@@ -434,17 +516,58 @@ export function useGameLoop(
         }
 
         // Create New Grave
-        const { error: graveError } = await supabase
-          .from('graves')
-          .insert({
-            user_id: userId,
-            depth: currentDepth,
-            gold_lost: currentGold,
-            items_json: itemsJson
-          });
+        // Ensure all values are properly defined
+        const safeItemsJson = Array.isArray(itemsJson) ? itemsJson : [];
+        const safeDepth = currentDepth ?? 0;
+        const safeGold = currentGold ?? 0;
 
-        if (graveError) {
-          console.error('Failed to create grave:', graveError);
+        const graveData = {
+          user_id: userId,
+          depth: safeDepth,
+          gold_lost: safeGold,
+          items_json: safeItemsJson
+        };
+
+        // Validate data before insert
+        if (!userId || safeDepth === undefined || safeGold === undefined) {
+          console.error('Invalid grave data:', { userId, depth: safeDepth, gold: safeGold, itemsCount: safeItemsJson.length });
+          addLog('Failed to create grave: Invalid data.');
+        } else {
+          const { error: graveError, data: graveDataResult } = await supabase
+            .from('graves')
+            .insert(graveData)
+            .select();
+
+          if (graveError) {
+            // Better error logging - Supabase errors have specific properties
+            const errorMessage = graveError.message || 'Unknown error';
+            const errorCode = graveError.code || 'NO_CODE';
+            const errorDetails = graveError.details || null;
+            const errorHint = graveError.hint || null;
+            
+            console.error('Failed to create grave:');
+            console.error('  Message:', errorMessage);
+            console.error('  Code:', errorCode);
+            console.error('  Details:', errorDetails);
+            console.error('  Hint:', errorHint);
+            console.error('  Full error:', graveError);
+            console.error('  Grave data attempted:', {
+              user_id: graveData.user_id,
+              depth: graveData.depth,
+              gold_lost: graveData.gold_lost,
+              items_count: graveData.items_json.length
+            });
+            
+            // Provide helpful error message based on error code
+            if (errorCode === '42501') {
+              addLog('Failed to create grave: Database security policy error. Please contact admin.');
+              console.error('RLS Policy Error: The graves table needs Row-Level Security policies. Run migration_fix_graves.sql in Supabase SQL Editor.');
+            } else {
+              addLog(`Failed to create grave: ${errorMessage}. Your items may be lost.`);
+            }
+          } else {
+            console.log('Grave created successfully:', graveDataResult);
+          }
         }
 
         // Wipe player inventory
@@ -483,7 +606,7 @@ export function useGameLoop(
         newDepth = 0;
         newGold = 0;
         newStamina = player.max_stamina;
-        newVigor = player.max_stamina;
+        newHealth = maxHealth;
         
         // Log death message
         logMessage = `YOU DIED. Your gear lies at ${currentDepth}m.`;
@@ -493,7 +616,7 @@ export function useGameLoop(
         setCanRetrieve(false);
       }
 
-      const updates = { depth: newDepth, max_depth: newMaxDepth, current_stamina: newStamina, gold: newGold, vigor: newVigor, xp: newXP, level: newLevel, stat_points: newStatPoints };
+      const updates = { depth: newDepth, max_depth: newMaxDepth, current_stamina: newStamina, gold: newGold, health: newHealth, max_health: maxHealth, vigor: newVigor, xp: newXP, level: newLevel, stat_points: newStatPoints };
       const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
       if (error) throw error;
 
@@ -528,9 +651,16 @@ export function useGameLoop(
 
       let newStamina = (player.current_stamina || 0) - staminaCost;
       let newGold = player.gold || 0;
-      let newVigor = player.vigor;
+      // Use health if available, otherwise fall back to vigor, then max_health, then max_stamina
+      let currentHealth = player.health ?? player.vigor ?? player.max_health ?? player.max_stamina ?? 100;
+      let maxHealth = player.max_health ?? player.max_stamina ?? 100;
+      let newHealth = currentHealth;
+      let newVigor = player.vigor; // Keep vigor as stat
       let newXP = player.xp || 0;
       let logMessage = "";
+
+      // --- AETHER GOLD MULTIPLIER ---
+      const goldMult = 1 + ((player.aether || 0) * 0.05); // 5% bonus per Aether point
 
       // --- GHOST CHECK ---
       await checkForGhosts(currentDepth);
@@ -615,7 +745,7 @@ export function useGameLoop(
         const monster = monsters?.length ? monsters[Math.floor(Math.random() * monsters.length)] : null;
 
         if (!monster) {
-          newVigor = Math.max(0, newVigor - 2);
+          newHealth = Math.max(0, newHealth - 2);
           logMessage = "You tripped on a rock! (-2 damage)";
           onEffect('damage', 2);
         } else {
@@ -633,32 +763,38 @@ export function useGameLoop(
           });
 
           const playerTotalAtk = (player.precision || 0) + bonusAtk;
-          const playerTotalDef = (player.vigor || 0) + bonusDef;
+          // Defense should only come from equipment, not from vigor (health)
+          const playerTotalDef = bonusDef;
 
           const critRoll = Math.random();
           const critMultiplier = critRoll < 0.1 ? 2 : 1;
           
           const dmgToMonster = Math.max(1, Math.floor((playerTotalAtk - monster.defense) * critMultiplier));
+          // Ensure minimum 1 damage is always taken
           const dmgToPlayer = Math.max(1, monster.attack - playerTotalDef);
           
           const hitsToKill = Math.ceil(monster.hp / dmgToMonster);
           const totalDmgTaken = hitsToKill * dmgToPlayer;
 
-          newVigor = Math.max(0, newVigor - totalDmgTaken);
+          newHealth = Math.max(0, newHealth - totalDmgTaken);
 
-          if (newVigor > 0) {
-            newGold += monster.gold_reward;
+          if (newHealth > 0) {
+            const baseGoldReward = monster.gold_reward;
+            const goldReward = Math.floor(baseGoldReward * goldMult);
+            const bonus = goldReward - baseGoldReward;
+            newGold += goldReward;
             newXP += monster.xp_reward;
             const critText = critMultiplier > 1 ? ' [CRIT!]' : '';
+            const bonusText = bonus > 0 ? ` [Bonus +${bonus} G]` : '';
             logMessage = `Defeated ${monster.name}!${critText} Took ${totalDmgTaken} damage.`;
             onEffect('damage', totalDmgTaken);
-            setTimeout(() => onEffect('gold', monster.gold_reward), 200);
+            setTimeout(() => onEffect('gold', goldReward), 200);
             setTimeout(() => onEffect('xp', monster.xp_reward), 400);
           } else {
             logMessage = `YOU DIED fighting ${monster.name}.`;
             onEffect('damage', 999);
             // Death handling would be similar to handleDescend, but simplified for explore
-            newVigor = player.max_stamina;
+            newHealth = maxHealth;
             newStamina = player.max_stamina;
           }
         }
@@ -674,6 +810,8 @@ export function useGameLoop(
       const updates = { 
         current_stamina: newStamina, 
         gold: newGold, 
+        health: newHealth,
+        max_health: maxHealth,
         vigor: newVigor, 
         xp: newXP 
       };
@@ -692,5 +830,5 @@ export function useGameLoop(
     }
   }, [userId, player, loading, addLog, onProfileUpdate, onEffect, checkForGhosts]);
 
-  return { handleDescend, handleExplore, handleStatUpgrade, handleGoldUpgrade, logs, loading, canRetrieve, setCanRetrieve, addLog, setGraveDepth };
+  return { handleDescend, handleExplore, handleStatUpgrade, handleGoldUpgrade, handleBankTransaction, logs, loading, canRetrieve, setCanRetrieve, addLog, setGraveDepth };
 }

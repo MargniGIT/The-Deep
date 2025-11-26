@@ -1,11 +1,18 @@
 import type { PlayerProfile } from '@/types';
 import { Heart, Zap, Coins, ArrowDown, Plus, Star } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useState } from 'react';
 
 interface StatsProps {
   profile: PlayerProfile;
   onUpgrade?: (stat: 'vigor' | 'precision' | 'aether') => void;
 }
+
+const STAT_INFO = {
+  vigor: { label: 'Survival', desc: 'Increases Defense and Max HP/Energy.' },
+  precision: { label: 'Combat', desc: 'Increases Attack Dmg and Crit Chance.' },
+  aether: { label: 'Greed', desc: 'Increases Gold Find and Warp Cost Reduction.' }
+};
 
 // THE NEW BIOME HELPER
 function getBiomeName(depth: number) {
@@ -18,7 +25,12 @@ function getBiomeName(depth: number) {
 export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
   if (!profile) return null;
 
-  const hpPercent = Math.min(100, (profile.vigor / profile.max_stamina) * 100);
+  const [activeStat, setActiveStat] = useState<string | null>(null);
+
+  // Use health if available, otherwise fall back to vigor (which was used as health in older versions), then max_health, then max_stamina
+  const currentHealth = profile.health ?? profile.vigor ?? profile.max_health ?? profile.max_stamina ?? 100;
+  const maxHealth = profile.max_health ?? profile.max_stamina ?? 100;
+  const hpPercent = Math.min(100, (currentHealth / maxHealth) * 100);
   const stamPercent = Math.min(100, (profile.current_stamina / profile.max_stamina) * 100);
   const xpPercent = Math.min(100, (profile.xp / (profile.level * 100)) * 100);
 
@@ -72,7 +84,7 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
         <div className="space-y-1">
           <div className="flex justify-between text-[10px] font-bold px-1 uppercase tracking-wider text-red-400">
             <span className="flex items-center gap-1"><Heart size={10} fill="currentColor" /> Health</span>
-            <span className="text-zinc-500">{profile.vigor} / {profile.max_stamina}</span>
+            <span className="text-zinc-500">{currentHealth} / {maxHealth}</span>
           </div>
           <div className="h-2 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800/50">
             <div className="h-full bg-red-600 transition-all duration-300" style={{ width: `${hpPercent}%` }} />
@@ -107,7 +119,8 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
         {['vigor', 'precision', 'aether'].map((stat) => (
           <div
             key={stat}
-            className="bg-zinc-900 p-2 rounded border border-zinc-800 flex flex-col items-center relative group"
+            onClick={() => setActiveStat(activeStat === stat ? null : stat)}
+            className="bg-zinc-900 p-2 rounded border border-zinc-800 flex flex-col items-center relative group cursor-pointer overflow-hidden"
           >
             <span className="text-[10px] uppercase text-zinc-500 tracking-wider">{stat}</span>
             <span className="font-bold text-lg text-zinc-200">
@@ -116,11 +129,31 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
 
             {profile.stat_points > 0 && onUpgrade && (
               <button
-                onClick={() => onUpgrade(stat as 'vigor' | 'precision' | 'aether')}
-                className="absolute -top-2 -right-2 bg-yellow-500 text-black rounded-full p-1 shadow-lg hover:scale-110 transition-transform hover:bg-yellow-400"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpgrade(stat as 'vigor' | 'precision' | 'aether');
+                }}
+                className="absolute -top-2 -right-2 bg-yellow-500 text-black rounded-full p-1 shadow-lg hover:scale-110 transition-transform hover:bg-yellow-400 z-20"
               >
                 <Plus size={12} strokeWidth={4} />
               </button>
+            )}
+
+            {activeStat === stat && (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveStat(null);
+                }}
+                className="absolute inset-0 bg-zinc-950/95 flex flex-col items-center justify-center p-2 text-center z-10 animate-in fade-in zoom-in-95 duration-200"
+              >
+                <div className="text-xs font-bold text-white mb-1">
+                  {STAT_INFO[stat as keyof typeof STAT_INFO].label}
+                </div>
+                <div className="text-[10px] text-zinc-400 leading-tight">
+                  {STAT_INFO[stat as keyof typeof STAT_INFO].desc}
+                </div>
+              </div>
             )}
           </div>
         ))}

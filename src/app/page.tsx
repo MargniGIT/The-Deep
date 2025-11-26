@@ -85,7 +85,7 @@ export default function Home() {
     }
   }, []);
 
-  const { handleDescend, handleExplore, handleStatUpgrade, handleGoldUpgrade, logs, loading: loopLoading, canRetrieve, setCanRetrieve, addLog, setGraveDepth } = useGameLoop(
+  const { handleDescend, handleExplore, handleStatUpgrade, handleGoldUpgrade, handleBankTransaction, logs, loading: loopLoading, canRetrieve, setCanRetrieve, addLog, setGraveDepth } = useGameLoop(
     userId,
     player, 
     (p) => setPlayer(p), 
@@ -166,6 +166,7 @@ export default function Home() {
               username: `Diver-${userId.slice(0, 8)}`,
               depth: 0,
               gold: 0,
+              bank_gold: 0,
               vigor: 5,
               precision: 5,
               aether: 5,
@@ -441,6 +442,7 @@ export default function Home() {
           onClose={() => setIsTownOpen(false)}
           onRest={(u) => setPlayer({ ...player, ...u })}
           onGoldUpgrade={handleGoldUpgrade}
+          onBankTransaction={handleBankTransaction}
         />
       )}
 

@@ -43,7 +43,8 @@ export function useDerivedStats(
 
       setDerived({
         attack: (player.precision || 0) + bonusAttack,
-        defense: (player.vigor || 0) + bonusDefense,
+        // Defense should only come from equipment, not from vigor (health)
+        defense: bonusDefense,
       });
     } catch (err) {
       console.error('Failed to compute derived stats', err);
