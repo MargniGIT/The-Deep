@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Home, Bed, ArrowLeft, Store, Coins, Trash2, Hammer, Anvil, Swords, ArrowUp } from 'lucide-react';
+import { X, Home, Bed, ArrowLeft, Store, Coins, Trash2, Hammer, Anvil, Swords, ArrowUp, Trophy, Pencil, Check } from 'lucide-react';
 import type { PlayerProfile, InventoryItem } from '@/types';
 import { supabase } from '@/lib/supabase';
 
@@ -13,10 +13,13 @@ interface TownProps {
 
 export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }: TownProps) {
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<'main' | 'merchant' | 'forge' | 'trainer'>('main');
+  const [view, setView] = useState<'main' | 'merchant' | 'forge' | 'trainer' | 'leaderboard'>('main');
   const [sellItems, setSellItems] = useState<InventoryItem[]>([]);
   const [scrapCount, setScrapCount] = useState(0);
   const [message, setMessage] = useState('');
+  const [leaderboard, setLeaderboard] = useState<PlayerProfile[]>([]);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [newName, setNewName] = useState('');
 
   // Helper function to calculate training cost
   const getTrainingCost = (bought: number) => 100 * (bought + 1);
@@ -46,9 +49,26 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
     if (!error) setScrapCount(count || 0);
   };
 
+  const loadLeaderboard = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, username, depth, level')
+        .order('depth', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+      setLeaderboard((data as PlayerProfile[]) || []);
+    } catch (err) {
+      console.error('Failed to load leaderboard:', err);
+      setMessage('Failed to load leaderboard.');
+    }
+  };
+
   useEffect(() => {
     if (view === 'merchant') loadSellableItems();
     if (view === 'forge') loadScrapCount();
+    if (view === 'leaderboard') loadLeaderboard();
   }, [view]);
 
   // Clear success message after a delay
@@ -100,6 +120,38 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
       setMessage("Failed to ascend.");
     }
     finally { setLoading(false); }
+  };
+
+  const handleRename = async () => {
+    if (!userId) return;
+
+    const trimmedName = newName.trim();
+    
+    // Validation: 3-15 characters
+    if (trimmedName.length < 3 || trimmedName.length > 15) {
+      setMessage("Name must be between 3-15 characters.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ username: trimmedName })
+        .eq('id', userId);
+
+      if (error) throw error;
+      
+      setMessage("✓ Name updated!");
+      onRest({ username: trimmedName });
+      setIsEditingName(false);
+      setNewName('');
+    } catch (err) {
+      console.error(err);
+      setMessage("Failed to update name.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSell = async (inventoryId: number, itemValue: number, itemName: string) => {
@@ -263,11 +315,71 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
       <div className="flex-1 overflow-y-auto px-6 pt-6 min-h-0" style={{ WebkitOverflowScrolling: 'touch' }}>
         {/* Header */}
         <div className="flex justify-between items-center mb-6 border-b border-zinc-800 pb-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-1">
             <Home className="text-yellow-500" size={24} />
-            <h2 className="text-2xl font-bold text-zinc-100">
-              {view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : 'Combat Trainer'}
-            </h2>
+            <div className="flex-1">
+              <h2 className="text-2xl font-bold text-zinc-100">
+                {view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : view === 'trainer' ? 'Combat Trainer' : 'Hall of Records'}
+              </h2>
+              {view === 'main' && (
+                <div className="flex items-center gap-2 mt-1">
+                  {isEditingName ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleRename();
+                          if (e.key === 'Escape') {
+                            setIsEditingName(false);
+                            setNewName('');
+                          }
+                        }}
+                        placeholder={player.username || 'New Delver'}
+                        className="bg-zinc-900 border border-zinc-700 text-zinc-100 px-2 py-1 rounded text-sm focus:outline-none focus:border-yellow-500 max-w-[150px]"
+                        autoFocus
+                        maxLength={15}
+                      />
+                      <button
+                        onClick={handleRename}
+                        disabled={loading}
+                        className="p-1 hover:bg-zinc-800 rounded text-green-400 hover:text-green-300 disabled:opacity-50"
+                        title="Save name"
+                      >
+                        <Check size={16} />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsEditingName(false);
+                          setNewName('');
+                        }}
+                        className="p-1 hover:bg-zinc-800 rounded text-zinc-400 hover:text-zinc-300"
+                        title="Cancel"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-zinc-400">
+                        {player.username || 'New Delver'}
+                      </span>
+                      <button
+                        onClick={() => {
+                          setIsEditingName(true);
+                          setNewName(player.username || '');
+                        }}
+                        className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-zinc-300 transition-colors"
+                        title="Edit name"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
             <X size={24} />
@@ -360,6 +472,19 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
             <div className="flex-1">
               <h3 className="font-bold text-lg">Combat Trainer</h3>
               <p className="text-zinc-500 text-sm">Train Stats with Gold</p>
+            </div>
+          </button>
+
+          <button
+            onClick={() => { setView('leaderboard'); setMessage(''); }}
+            className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
+          >
+            <div className="bg-zinc-800 p-3 rounded text-yellow-500 group-hover:text-yellow-400">
+              <Trophy size={24} />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-lg">Hall of Records</h3>
+              <p className="text-zinc-500 text-sm">View Top Delvers</p>
             </div>
           </button>
         </div>
@@ -513,6 +638,51 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
           </div>
         </div>
         )}
+
+        {/* --- VIEW: LEADERBOARD --- */}
+        {view === 'leaderboard' && (
+          <div className="flex flex-col gap-4 pb-4 pr-2">
+            <div className="text-center space-y-2 mb-4">
+              <Trophy size={48} className="text-yellow-500 mx-auto" />
+              <h3 className="text-xl font-bold text-zinc-300">Hall of Records</h3>
+              <p className="text-zinc-500 text-sm max-w-xs mx-auto">
+                The deepest delvers who have ventured into the abyss.
+              </p>
+            </div>
+
+            {leaderboard.length === 0 ? (
+              <div className="text-zinc-500 text-center py-10">Loading leaderboard...</div>
+            ) : (
+              <div className="space-y-2">
+                {leaderboard.map((profile, index) => {
+                  const rank = index + 1;
+                  const isCurrentUser = userId && profile.id === userId;
+                  const displayName = !profile.username || profile.username === 'New Delver' ? 'New Delver' : profile.username;
+
+                  return (
+                    <div
+                      key={profile.id}
+                      className={`grid grid-cols-12 gap-2 items-center p-3 rounded-lg border ${
+                        isCurrentUser
+                          ? 'bg-yellow-900/20 border-yellow-600/50 text-yellow-200'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-200'
+                      }`}
+                    >
+                      <div className={`col-span-2 font-bold text-lg ${
+                        rank === 1 ? 'text-yellow-500' : rank === 2 ? 'text-zinc-400' : rank === 3 ? 'text-amber-600' : 'text-zinc-500'
+                      }`}>
+                        #{rank}
+                      </div>
+                      <div className="col-span-5 font-semibold truncate">{displayName}</div>
+                      <div className="col-span-3 font-mono text-sm">{profile.depth}m</div>
+                      <div className="col-span-2 font-bold">{profile.level || 1}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Button container - fixed at bottom */}
@@ -522,7 +692,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
             onClick={() => setView('main')} 
             className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white px-6 py-4 rounded-lg font-semibold transition-all active:scale-95"
           >
-            <ArrowLeft size={20} /> Back to Outpost
+            <ArrowLeft size={20} /> Back
           </button>
         ) : (
           <button 
