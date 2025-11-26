@@ -6,6 +6,8 @@ import StatsDisplay from '@/components/StatsDisplay';
 import GameLog from '@/components/GameLog';
 import Town from '@/components/Town';
 import InventoryModal from '@/components/InventoryModal';
+import AdminPanel from '@/components/AdminPanel';
+import BiomeBackground from '@/components/BiomeBackground';
 import { supabase } from '@/lib/supabase';
 import type { PlayerProfile } from '@/types';
 import { Shield, Sword } from 'lucide-react';
@@ -17,6 +19,23 @@ type FloatingText = {
   x: number;
   y: number;
 };
+
+// Helper function to get biome style based on depth (HUD-like styles for header)
+function getBiomeStyle(depth: number): string {
+  if (depth < 500) {
+    // Default Industrial/Dark
+    return 'bg-zinc-900/80 border-zinc-800';
+  } else if (depth < 1500) {
+    // Mossy/Damp
+    return 'bg-emerald-950/80 border-emerald-500/30 shadow-[0_10px_40px_-10px_rgba(16,185,129,0.5)]';
+  } else if (depth < 3000) {
+    // Crystal/Magical
+    return 'bg-violet-950/80 border-violet-500/30 shadow-[0_10px_40px_-10px_rgba(139,92,246,0.5)]';
+  } else {
+    // The Void/Danger
+    return 'bg-red-950/90 border-red-500/50 shadow-[0_10px_40px_-10px_rgba(220,38,38,0.5)]';
+  }
+}
 
 export default function Home() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -72,23 +91,6 @@ export default function Home() {
     (p) => setPlayer(p), 
     handleEffect 
   );
-
-  // Helper function to get biome style based on depth
-  const getBiomeStyle = useCallback((depth: number) => {
-    if (depth < 500) {
-      // Standard: < 500m
-      return 'bg-zinc-950 text-zinc-100';
-    } else if (depth < 1500) {
-      // Mossy Glow: 500-1500m
-      return 'bg-slate-950 text-emerald-100 shadow-[inset_0_0_100px_rgba(16,185,129,0.1)]';
-    } else if (depth < 3000) {
-      // Crystal: 1500-3000m
-      return 'bg-[#0a0510] text-purple-100 shadow-[inset_0_0_100px_rgba(147,51,234,0.1)]';
-    } else {
-      // The Void: > 3000m
-      return 'bg-black text-red-50';
-    }
-  }, []);
 
   // Load authenticated user ID (if any)
   useEffect(() => {
@@ -382,10 +384,11 @@ export default function Home() {
   }
   if (!player) return <div className="h-screen flex items-center justify-center text-zinc-500">Loading Abyss...</div>;
 
-  const biomeStyle = player ? getBiomeStyle(player.depth || 0) : 'bg-zinc-950 text-zinc-100';
+  const biomeStyle = getBiomeStyle(player.depth || 0);
 
   return (
-    <main className={`flex min-h-screen flex-col font-mono max-w-md mx-auto border-x border-zinc-800 relative overflow-hidden ${biomeStyle}`}>
+    <main className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100 font-mono max-w-md mx-auto border-x border-zinc-800 relative overflow-hidden">
+      <BiomeBackground depth={player.depth || 0} />
       
       <div className={`pointer-events-none absolute inset-0 z-50 ${damageFlash ? 'animate-damage' : ''}`} />
 
@@ -404,7 +407,7 @@ export default function Home() {
         ))}
       </div>
 
-      <header className="p-4 border-b border-zinc-800 bg-zinc-900/50">
+      <header className={`relative z-50 p-4 border-b transition-all duration-[3000ms] ease-in-out ${biomeStyle}`}>
         <StatsDisplay
           profile={player}
           onUpgrade={handleStatUpgrade}
@@ -415,29 +418,15 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="flex-1 overflow-hidden relative">
+      <section className="relative z-10 flex-1 overflow-hidden">
         <GameLog logs={logs} />
-        {isTownOpen && (
-          <Town
-            userId={userId}
-            player={player}
-            onClose={() => setIsTownOpen(false)}
-            onRest={(u) => setPlayer({ ...player, ...u })}
-            onGoldUpgrade={handleGoldUpgrade}
-          />
-        )}
-        <InventoryModal
-          userId={userId}
-          isOpen={isInventoryOpen}
-          onClose={() => setIsInventoryOpen(false)}
-        />
         {/* Floating Retrieve Souls Button */}
         {canRetrieve && (
           <div className="absolute bottom-20 left-0 right-0 flex justify-center z-50 pointer-events-auto px-4">
             <button
               onClick={handleRetrieveGrave}
               disabled={retrieving}
-              className="bg-zinc-800 hover:bg-zinc-700 text-red-400 px-4 py-2 rounded font-bold text-xs border border-red-500/50 transition-all hover:border-red-400 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg w-full max-w-xs"
+              className="bg-emerald-900/80 hover:bg-emerald-800/80 text-emerald-200 px-4 py-2 rounded font-bold text-xs border border-emerald-400/50 transition-all hover:border-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/20 w-full max-w-xs backdrop-blur-sm"
             >
               {retrieving ? 'RETRIEVING...' : 'RETRIEVE SOULS'}
             </button>
@@ -445,8 +434,32 @@ export default function Home() {
         )}
       </section>
 
-      <footer className="p-4 border-t border-zinc-800 bg-zinc-900 grid grid-cols-3 gap-2">
-        <button onClick={() => setIsTownOpen(!isTownOpen)} className="bg-zinc-800 hover:bg-zinc-700 p-3 rounded font-bold text-yellow-500 transition-colors">{player.depth > 0 ? 'CAMP' : 'TOWN'}</button>
+      {isTownOpen && (
+        <Town
+          userId={userId}
+          player={player}
+          onClose={() => setIsTownOpen(false)}
+          onRest={(u) => setPlayer({ ...player, ...u })}
+          onGoldUpgrade={handleGoldUpgrade}
+        />
+      )}
+
+      <InventoryModal
+        userId={userId}
+        isOpen={isInventoryOpen}
+        onClose={() => setIsInventoryOpen(false)}
+      />
+
+      <footer className="relative z-50 p-4 border-t border-zinc-800 bg-zinc-900 grid grid-cols-3 gap-2">
+        <button 
+          onClick={() => {
+            setIsTownOpen(!isTownOpen);
+            setIsInventoryOpen(false); // Close inventory when opening camp/town
+          }} 
+          className="bg-zinc-800 hover:bg-zinc-700 p-3 rounded font-bold text-yellow-500 transition-colors"
+        >
+          {player.depth > 0 ? 'CAMP' : 'TOWN'}
+        </button>
         <div className="flex flex-col gap-2">
           <button onClick={handleDescend} disabled={loopLoading || isTownOpen || isInventoryOpen} className="bg-zinc-100 hover:bg-white text-black p-2 rounded font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transform duration-75 text-sm">
             {loopLoading ? '...' : 'DESCEND'}
@@ -459,8 +472,18 @@ export default function Home() {
             {loopLoading ? '...' : `EXPLORE (-${Math.max(1, Math.floor((player.depth || 0) / 1000))})`}
           </button>
         </div>
-        <button onClick={() => setIsInventoryOpen(true)} className="bg-zinc-800 hover:bg-zinc-700 p-3 rounded font-bold text-blue-400 transition-colors">BAG</button>
+        <button 
+          onClick={() => {
+            setIsInventoryOpen(true);
+            setIsTownOpen(false); // Close camp/town when opening inventory
+          }} 
+          className="bg-zinc-800 hover:bg-zinc-700 p-3 rounded font-bold text-blue-400 transition-colors"
+        >
+          BAG
+        </button>
       </footer>
+
+      <AdminPanel player={player} onUpdate={(updates) => setPlayer({ ...player, ...updates })} />
     </main>
   );
 }

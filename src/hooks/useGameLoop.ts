@@ -219,7 +219,7 @@ export function useGameLoop(
 
       // --- GRAVE DISCOVERY CHECK ---
       if (graveDepth !== null && newDepth === graveDepth) {
-        addLog('[!] Your lost gear is here.');
+        addLog('[!] You see your own bleached bones ahead.');
         setCanRetrieve(true);
       }
 
@@ -414,10 +414,26 @@ export function useGameLoop(
           .select('*')
           .eq('user_id', userId);
 
-        // Serialize items to JSON, preserving is_equipped status
-        const itemsJson = allItems || [];
+        // Serialize items to JSON, preserving item_id, is_equipped, stats_override, name_override
+        const itemsJson = (allItems || []).map(item => ({
+          item_id: item.item_id,
+          is_equipped: item.is_equipped,
+          stats_override: item.stats_override,
+          name_override: item.name_override,
+          slot: item.slot
+        }));
 
-        // Create grave record
+        // Delete Old Grave: The 'Double Death' rule - if you die before retrieving, the old grave is lost forever
+        const { error: deleteOldGraveError } = await supabase
+          .from('graves')
+          .delete()
+          .eq('user_id', userId);
+
+        if (deleteOldGraveError) {
+          console.error('Failed to delete old grave:', deleteOldGraveError);
+        }
+
+        // Create New Grave
         const { error: graveError } = await supabase
           .from('graves')
           .insert({
@@ -463,20 +479,14 @@ export function useGameLoop(
           }
         }
 
-        // Reset player state
+        // Wipe Player: Set gold to 0 and reset depth
         newDepth = 0;
         newGold = 0;
         newStamina = player.max_stamina;
         newVigor = player.max_stamina;
         
-        // DEBUG DEATH LOGS: Specific messages based on death cause
-        if (deathCause === 'combat') {
-          logMessage = `YOU DIED fighting ${killedByMonster || 'an unknown foe'}. Your gear lies at ${currentDepth}m.`;
-        } else if (deathCause === 'exhaustion') {
-          logMessage = `YOU DIED from exhaustion. Your gear lies at ${currentDepth}m.`;
-        } else {
-          logMessage = `YOU DIED. Your gear lies at ${currentDepth}m.`;
-        }
+        // Log death message
+        logMessage = `YOU DIED. Your gear lies at ${currentDepth}m.`;
         
         // Update grave depth state
         setGraveDepth(currentDepth);

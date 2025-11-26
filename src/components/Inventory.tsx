@@ -63,7 +63,7 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 bg-black/80 z-20 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-zinc-900 border border-zinc-700 w-full max-w-lg rounded-lg shadow-2xl flex flex-col max-h-[80vh]">
 
         {/* Header */}

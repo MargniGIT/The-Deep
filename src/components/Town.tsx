@@ -402,11 +402,18 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
     .reduce((sum, i) => sum + (i.item.value || 5), 0);
 
   return (
-    <div className="fixed inset-0 bg-zinc-950/95 z-40 flex items-center justify-center p-4 animate-in fade-in duration-300">
-      <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col" style={{ maxHeight: '90vh', height: '90vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="fixed inset-0 bg-zinc-950/95 z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
+      <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col overflow-hidden" style={{ maxHeight: 'calc(100vh - 2rem)' }}>
       
       {/* Scrollable content area */}
-      <div className="flex-1 overflow-y-auto px-6 pt-6 min-h-0" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <div 
+        className="flex-1 overflow-y-auto px-6 pt-6 min-h-0" 
+        style={{ 
+          WebkitOverflowScrolling: 'touch',
+          touchAction: 'pan-y',
+          overscrollBehavior: 'contain'
+        }}
+      >
         {/* Header */}
         <div className="flex justify-between items-center mb-6 border-b border-zinc-800 pb-4">
           <div className="flex items-center gap-3 flex-1">
@@ -876,7 +883,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
       </div>
 
       {/* Button container - fixed at bottom */}
-      <div className="flex-shrink-0 border-t border-zinc-800 bg-zinc-950 px-6 pt-4" style={{ paddingBottom: 'max(1rem, calc(1rem + env(safe-area-inset-bottom)))' }}>
+      <div className="flex-shrink-0 border-t border-zinc-800 bg-zinc-950 px-6 py-4 mt-auto">
         {view !== 'main' ? (
           <button 
             onClick={() => setView('main')} 

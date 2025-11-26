@@ -1,5 +1,6 @@
 import type { PlayerProfile } from '@/types';
 import { Heart, Zap, Coins, ArrowDown, Plus, Star } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface StatsProps {
   profile: PlayerProfile;
@@ -28,9 +29,20 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
       <div className="flex justify-between items-end">
         <div className="flex flex-col">
           {/* DISPLAY BIOME NAME HERE */}
-          <span className="text-[10px] text-zinc-500 font-bold tracking-widest uppercase mb-1">
-            {getBiomeName(profile.depth)}
-          </span>
+          <div className="mb-2 border-b-2 border-white/20 pb-2">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={getBiomeName(profile.depth)}
+                initial={{ opacity: 0, y: 10, filter: 'blur(10px)' }}
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                exit={{ opacity: 0, y: -10, filter: 'blur(10px)' }}
+                transition={{ duration: 0.8, ease: 'easeOut' }}
+                className="text-base font-black tracking-[0.25em] uppercase text-white drop-shadow-md"
+              >
+                {getBiomeName(profile.depth)}
+              </motion.div>
+            </AnimatePresence>
+          </div>
           <div className="flex items-center text-xl font-black text-zinc-100 gap-2">
             <span className="bg-zinc-800 px-2 py-0.5 rounded text-sm">LVL {profile.level}</span>
             {profile.stat_points > 0 && (

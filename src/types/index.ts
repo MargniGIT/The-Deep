@@ -85,6 +85,7 @@ export interface PlayerProfile {
   level: number;
   stat_points: number;
   stats_bought?: number;
+  is_admin?: boolean;
 }
 
 // --- Add this block to src/types/index.ts ---
