@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Home, Bed, ArrowLeft, Store, Coins, Trash2, Hammer, Anvil } from 'lucide-react';
+import { X, Home, Bed, ArrowLeft, Store, Coins, Trash2, Hammer, Anvil, Swords, ArrowUp } from 'lucide-react';
 import type { PlayerProfile, InventoryItem } from '@/types';
 import { supabase } from '@/lib/supabase';
 
@@ -8,14 +8,18 @@ interface TownProps {
   player: PlayerProfile | null;
   onClose: () => void;
   onRest: (updates: Partial<PlayerProfile>) => void;
+  onGoldUpgrade?: (stat: 'vigor' | 'precision' | 'aether') => void;
 }
 
-export default function Town({ userId, player, onClose, onRest }: TownProps) {
+export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }: TownProps) {
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<'main' | 'merchant' | 'forge'>('main');
+  const [view, setView] = useState<'main' | 'merchant' | 'forge' | 'trainer'>('main');
   const [sellItems, setSellItems] = useState<InventoryItem[]>([]);
   const [scrapCount, setScrapCount] = useState(0);
   const [message, setMessage] = useState('');
+
+  // Helper function to calculate training cost
+  const getTrainingCost = (bought: number) => 100 * (bought + 1);
 
   // --- FETCH ITEMS ---
   const loadSellableItems = async () => {
@@ -47,6 +51,14 @@ export default function Town({ userId, player, onClose, onRest }: TownProps) {
     if (view === 'forge') loadScrapCount();
   }, [view]);
 
+  // Clear success message after a delay
+  useEffect(() => {
+    if (message && message.includes('✓')) {
+      const timer = setTimeout(() => setMessage(''), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [message]);
+
   if (!player) return null;
 
   // --- ACTIONS ---
@@ -68,6 +80,25 @@ export default function Town({ userId, player, onClose, onRest }: TownProps) {
       setMessage("Restored HP & Stamina.");
       onRest({ gold: player.gold - 10, current_stamina: player.max_stamina, vigor: player.max_stamina });
     } catch (err) { console.error(err); }
+    finally { setLoading(false); }
+  };
+
+  const handleAscend = async () => {
+    if (!userId) return;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('profiles')
+        .update({ depth: 0 })
+        .eq('id', userId);
+
+      if (error) throw error;
+      setMessage("You climbed back up to the light.");
+      onRest({ depth: 0 });
+    } catch (err) { 
+      console.error(err); 
+      setMessage("Failed to ascend.");
+    }
     finally { setLoading(false); }
   };
 
@@ -225,14 +256,15 @@ export default function Town({ userId, player, onClose, onRest }: TownProps) {
     .reduce((sum, i) => sum + (i.item.value || 5), 0);
 
   return (
-    <div className="absolute inset-0 bg-zinc-950/95 z-40 flex flex-col p-6 animate-in fade-in duration-300">
+    <div className="fixed inset-0 bg-zinc-950/95 z-40 flex items-center justify-center p-4 animate-in fade-in duration-300">
+      <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col p-6 overflow-y-auto overscroll-contain touch-pan-y" style={{ WebkitOverflowScrolling: 'touch', maxHeight: '90vh' }}>
 
       {/* Header */}
       <div className="flex justify-between items-center mb-6 border-b border-zinc-800 pb-4">
         <div className="flex items-center gap-3">
           <Home className="text-yellow-500" size={24} />
           <h2 className="text-2xl font-bold text-zinc-100">
-            {view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : 'The Forge'}
+            {view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : 'Combat Trainer'}
           </h2>
         </div>
         <button onClick={onClose} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
@@ -258,7 +290,23 @@ export default function Town({ userId, player, onClose, onRest }: TownProps) {
 
       {/* --- VIEW: MAIN MENU --- */}
       {view === 'main' && (
-        <div className="flex-1 flex flex-col gap-4">
+        <div className="flex-1 flex flex-col gap-4 min-h-0">
+          {player.depth > 0 && (
+            <button
+              onClick={handleAscend}
+              disabled={loading}
+              className="flex items-center gap-4 bg-zinc-900 border-2 border-blue-500 p-4 rounded-lg hover:border-blue-400 transition-all text-left group disabled:opacity-50"
+            >
+              <div className="bg-zinc-800 p-3 rounded text-blue-400 group-hover:text-blue-300">
+                <ArrowUp size={24} />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-lg">Ascend to Surface</h3>
+                <p className="text-zinc-500 text-sm">Return to the surface (0m)</p>
+              </div>
+            </button>
+          )}
+
           <button
             onClick={handleRest}
             disabled={loading || player.gold < 10}
@@ -299,12 +347,25 @@ export default function Town({ userId, player, onClose, onRest }: TownProps) {
               <p className="text-zinc-500 text-sm">Craft Gear from Scrap</p>
             </div>
           </button>
+
+          <button
+            onClick={() => { setView('trainer'); setMessage(''); }}
+            className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
+          >
+            <div className="bg-zinc-800 p-3 rounded text-purple-500 group-hover:text-purple-400">
+              <Swords size={24} />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-lg">Combat Trainer</h3>
+              <p className="text-zinc-500 text-sm">Train Stats with Gold</p>
+            </div>
+          </button>
         </div>
       )}
 
       {/* --- VIEW: MERCHANT --- */}
       {view === 'merchant' && (
-        <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-2">
+        <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-2 min-h-0">
           {commonCount > 0 && (
             <button
               onClick={handleBulkSell}
@@ -345,7 +406,7 @@ export default function Town({ userId, player, onClose, onRest }: TownProps) {
 
       {/* --- VIEW: FORGE --- */}
       {view === 'forge' && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-6">
+        <div className="flex-1 flex flex-col items-center justify-center gap-6 min-h-0">
           <div className="text-center space-y-2">
             <Anvil size={48} className="text-zinc-700 mx-auto" />
             <h3 className="text-xl font-bold text-zinc-300">Blacksmith&apos;s Forge</h3>
@@ -370,6 +431,87 @@ export default function Town({ userId, player, onClose, onRest }: TownProps) {
         </div>
       )}
 
+      {/* --- VIEW: TRAINER --- */}
+      {view === 'trainer' && (
+        <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto pr-2">
+          <div className="text-center space-y-2 mb-4">
+            <Swords size={48} className="text-purple-500 mx-auto" />
+            <h3 className="text-xl font-bold text-zinc-300">Combat Trainer</h3>
+            <p className="text-zinc-500 text-sm max-w-xs mx-auto">
+              Spend gold to permanently increase your combat stats.
+            </p>
+          </div>
+
+          <div className="bg-zinc-900 p-4 rounded-lg border border-zinc-800 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-zinc-500 text-sm font-bold uppercase tracking-wider">Current Gold</span>
+              <span className="text-xl font-bold text-yellow-500 flex items-center gap-1">
+                {player.gold} <Coins size={18} />
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-500 text-sm font-bold uppercase tracking-wider">Training Cost</span>
+              <span className="text-lg font-bold text-zinc-300">
+                {getTrainingCost((player as any).stats_bought || 0)} <Coins size={14} className="inline" />
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {(['vigor', 'precision', 'aether'] as const).map((stat) => {
+              const statsBought = (player as any).stats_bought || 0;
+              const cost = getTrainingCost(statsBought);
+              const canAfford = player.gold >= cost;
+
+              return (
+                <div
+                  key={stat}
+                  className="bg-zinc-900 p-4 rounded-lg border border-zinc-800 flex items-center justify-between"
+                >
+                  <div className="flex-1">
+                    <div className="text-sm font-bold text-zinc-300 uppercase tracking-wider mb-1">
+                      {stat}
+                    </div>
+                    <div className="text-2xl font-black text-zinc-100">
+                      {player[stat] || 0}
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!onGoldUpgrade || loading || !canAfford) return;
+                      
+                      setLoading(true);
+                      setMessage(`Training ${stat}...`);
+                      
+                      await onGoldUpgrade(stat);
+                      
+                      // The player prop will update via onProfileUpdate
+                      // Show success message briefly
+                      setTimeout(() => {
+                        setMessage(`✓ ${stat.charAt(0).toUpperCase() + stat.slice(1)} increased!`);
+                        setLoading(false);
+                      }, 500);
+                    }}
+                    disabled={loading || !canAfford || !onGoldUpgrade}
+                    className={`px-4 py-2 rounded font-bold flex items-center gap-2 transition-all ${
+                      canAfford && !loading
+                        ? 'bg-purple-900/50 hover:bg-purple-800 text-purple-200 border border-purple-700'
+                        : 'bg-zinc-800 text-zinc-600 border border-zinc-700 opacity-50 cursor-not-allowed'
+                    }`}
+                  >
+                    <Swords size={16} />
+                    <span>{loading ? 'TRAINING...' : 'TRAIN (+1)'}</span>
+                    <span className="text-xs ml-1">
+                      ({cost} <Coins size={12} className="inline" />)
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="mt-auto pt-6 border-t border-zinc-800">
         {view !== 'main' ? (
           <button onClick={() => setView('main')} className="flex items-center gap-2 text-zinc-500 hover:text-white mx-auto">
@@ -380,6 +522,7 @@ export default function Town({ userId, player, onClose, onRest }: TownProps) {
             <ArrowLeft size={16} /> Return to the Deep
           </button>
         )}
+      </div>
       </div>
     </div>
   );

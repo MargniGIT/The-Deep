@@ -245,7 +245,6 @@ export default function Home() {
         <StatsDisplay
           profile={player}
           onUpgrade={handleStatUpgrade}
-          onGoldUpgrade={handleGoldUpgrade}
         />
         <div className="flex gap-4 mt-3 text-sm">
           <div className="flex items-center gap-2 text-red-400"><Sword size={16} /><span className="font-bold">{derivedStats.attack} ATK</span></div>
@@ -261,6 +260,7 @@ export default function Home() {
             player={player}
             onClose={() => setIsTownOpen(false)}
             onRest={(u) => setPlayer({ ...player, ...u })}
+            onGoldUpgrade={handleGoldUpgrade}
           />
         )}
         <InventoryModal

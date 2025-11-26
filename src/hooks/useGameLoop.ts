@@ -1,8 +1,10 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { PlayerProfile } from '@/types';
-const GOLD_UPGRADE_COST = 200;
 const MAX_LEVEL = 50;
+
+// Helper function to calculate training cost
+const getTrainingCost = (bought: number) => 100 * (bought + 1);
 
 // --- HORROR TEXT POOLS ---
 const SHALLOW_LOGS = [
@@ -83,21 +85,37 @@ export function useGameLoop(
     }
   }, [userId, player, onProfileUpdate, addLog]);
 
-  const handleGoldUpgrade = useCallback(async (statName: 'vigor' | 'precision' | 'aether') => {
+  const handleGoldUpgrade = useCallback(async (stat: 'vigor' | 'precision' | 'aether') => {
     if (!userId) {
       console.error('No user ID found');
       return;
     }
     if (!player) return;
 
+    const statsBought = (player as any).stats_bought || 0;
+    const cost = getTrainingCost(statsBought);
     const currentGold = player.gold || 0;
-    if (currentGold < GOLD_UPGRADE_COST) return;
 
-    const newStats: Partial<PlayerProfile> = {
-      [statName]: (player[statName] || 0) + 1,
-      gold: currentGold - GOLD_UPGRADE_COST,
-      max_stamina: statName === 'vigor' ? player.max_stamina + 5 : player.max_stamina,
+    if (currentGold < cost) {
+      addLog(`Not enough gold! Need ${cost} gold.`);
+      return;
+    }
+
+    // If vigor is upgraded, also increase max_stamina by 5 and refill health/energy
+    const newMaxStamina = stat === 'vigor' ? (player.max_stamina || 0) + 5 : player.max_stamina;
+    
+    const newStats: Partial<PlayerProfile> & { stats_bought?: number } = {
+      [stat]: (player[stat] || 0) + 1,
+      gold: currentGold - cost,
+      stats_bought: statsBought + 1,
+      max_stamina: stat === 'vigor' ? newMaxStamina : player.max_stamina,
     };
+
+    // Refill health/energy when vigor is upgraded
+    if (stat === 'vigor') {
+      newStats.vigor = newMaxStamina; // Refill health to new max
+      newStats.current_stamina = newMaxStamina; // Refill energy to new max
+    }
 
     const { error } = await supabase
       .from('profiles')
@@ -105,8 +123,11 @@ export function useGameLoop(
       .eq('id', userId);
 
     if (!error) {
-      onProfileUpdate({ ...player, ...newStats });
-      addLog(`You invested ${GOLD_UPGRADE_COST} gold to increase your ${statName.toUpperCase()}!`);
+      onProfileUpdate({ ...player, ...newStats } as PlayerProfile);
+      addLog(`You invested ${cost} gold to increase your ${stat.toUpperCase()}!`);
+    } else {
+      console.error('Error updating profile:', error);
+      addLog('Failed to upgrade stat.');
     }
   }, [userId, player, onProfileUpdate, addLog]);
 
@@ -116,22 +137,30 @@ export function useGameLoop(
       return;
     }
     if (!player || loading) return;
-    if (player.current_stamina <= 0) {
-      addLog("You are too exhausted to continue.");
-      return;
-    }
 
     setLoading(true);
 
     try {
       let newDepth = (player.depth || 0) + 1;
-      let newStamina = player.current_stamina - 1;
+      let newStamina = player.current_stamina || 0;
       let newGold = player.gold || 0;
       let newVigor = player.vigor || 10;
       let newXP = player.xp || 0;
       let newLevel = player.level || 1;
       let newStatPoints = player.stat_points || 0;
       let logMessage = "";
+      let exhaustionDamage = 0;
+
+      // --- EXHAUSTION LOGIC ---
+      // If you keep descending with no stamina, you take HP damage instead.
+      if (newStamina <= 0) {
+        exhaustionDamage = 2;
+        newVigor = Math.max(0, newVigor - exhaustionDamage);
+        onEffect('damage', exhaustionDamage);
+        // Stamina stays at 0 when exhausted
+      } else {
+        newStamina = Math.max(0, newStamina - 1);
+      }
 
       const roll = Math.floor(Math.random() * 100) + 1;
 
@@ -252,6 +281,12 @@ export function useGameLoop(
             onEffect('damage', 999);
           }
         }
+      }
+
+      // Prepend exhaustion message if applicable
+      if (exhaustionDamage > 0) {
+        const exhaustionText = `Pushing past exhaustion drains your life. (-${exhaustionDamage} HP)`;
+        logMessage = logMessage ? `${exhaustionText} ${logMessage}` : exhaustionText;
       }
 
       // Level & Death Checks

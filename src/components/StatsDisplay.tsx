@@ -4,7 +4,6 @@ import { Heart, Zap, Coins, ArrowDown, Plus, Star } from 'lucide-react';
 interface StatsProps {
   profile: PlayerProfile;
   onUpgrade?: (stat: 'vigor' | 'precision' | 'aether') => void;
-  onGoldUpgrade?: (stat: 'vigor' | 'precision' | 'aether') => void;
 }
 
 // THE NEW BIOME HELPER
@@ -15,9 +14,7 @@ function getBiomeName(depth: number) {
   return "The Void";
 }
 
-const GOLD_UPGRADE_COST = 200;
-
-export default function StatsDisplay({ profile, onUpgrade, onGoldUpgrade }: StatsProps) {
+export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
   if (!profile) return null;
 
   const hpPercent = Math.min(100, (profile.vigor / profile.max_stamina) * 100);
@@ -106,21 +103,6 @@ export default function StatsDisplay({ profile, onUpgrade, onGoldUpgrade }: Stat
                 className="absolute -top-2 -right-2 bg-yellow-500 text-black rounded-full p-1 shadow-lg hover:scale-110 transition-transform hover:bg-yellow-400"
               >
                 <Plus size={12} strokeWidth={4} />
-              </button>
-            )}
-
-            {onGoldUpgrade && (
-              <button
-                onClick={() => onGoldUpgrade(stat as 'vigor' | 'precision' | 'aether')}
-                disabled={profile.gold < GOLD_UPGRADE_COST}
-                className={`mt-2 flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border ${
-                  profile.gold >= GOLD_UPGRADE_COST
-                    ? 'border-yellow-500 text-yellow-400 hover:bg-yellow-500/10 transition-colors'
-                    : 'border-zinc-700 text-zinc-600 opacity-60 cursor-not-allowed'
-                }`}
-              >
-                <Coins size={10} />
-                <span>{GOLD_UPGRADE_COST}</span>
               </button>
             )}
           </div>

@@ -83,6 +83,7 @@ export interface PlayerProfile {
   // NEW FIELDS
   level: number;
   stat_points: number;
+  stats_bought?: number;
 }
 
 // --- Add this block to src/types/index.ts ---
