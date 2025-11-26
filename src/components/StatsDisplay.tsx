@@ -6,20 +6,31 @@ interface StatsProps {
   onUpgrade?: (stat: 'vigor' | 'precision' | 'aether') => void;
 }
 
+// THE NEW BIOME HELPER
+function getBiomeName(depth: number) {
+  if (depth < 500) return "The Shallows";
+  if (depth < 1500) return "Moss Gardens";
+  if (depth < 3000) return "Crystal Catacombs";
+  return "The Void";
+}
+
 export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
   if (!profile) return null;
 
-  // Calculate percentages
   const hpPercent = Math.min(100, (profile.vigor / profile.max_stamina) * 100);
   const stamPercent = Math.min(100, (profile.current_stamina / profile.max_stamina) * 100);
   const xpPercent = Math.min(100, (profile.xp / (profile.level * 100)) * 100);
 
   return (
     <div className="space-y-4">
-      {/* Top Row: Depth & Gold */}
+      
+      {/* Top Row */}
       <div className="flex justify-between items-end">
         <div className="flex flex-col">
-          <span className="text-xs text-zinc-500 font-bold tracking-widest uppercase">Depth {profile.depth}m</span>
+          {/* DISPLAY BIOME NAME HERE */}
+          <span className="text-[10px] text-zinc-500 font-bold tracking-widest uppercase mb-1">
+            {getBiomeName(profile.depth)}
+          </span>
           <div className="flex items-center text-xl font-black text-zinc-100 gap-2">
             <span className="bg-zinc-800 px-2 py-0.5 rounded text-sm">LVL {profile.level}</span>
             {profile.stat_points > 0 && (
@@ -28,17 +39,19 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
           </div>
         </div>
         
-        <div className="text-right">
-          <div className="flex items-center justify-end gap-2 text-yellow-500 font-bold text-xl">
-            {profile.gold} <Coins size={18} />
+        <div className="flex flex-col items-end">
+           <div className="flex items-center gap-1 text-zinc-400 font-bold text-lg">
+             <ArrowDown size={18} /> {profile.depth}m
+           </div>
+           <div className="flex items-center gap-2 text-yellow-500 font-bold">
+            {profile.gold} <Coins size={16} />
           </div>
         </div>
       </div>
 
-      {/* BARS SECTION */}
+      {/* BARS */}
       <div className="space-y-3 bg-zinc-900/50 p-3 rounded-lg border border-zinc-800">
-        
-        {/* HEALTH BAR */}
+        {/* HP */}
         <div className="space-y-1">
           <div className="flex justify-between text-[10px] font-bold px-1 uppercase tracking-wider text-red-400">
             <span className="flex items-center gap-1"><Heart size={10} fill="currentColor"/> Health</span>
@@ -49,7 +62,7 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
           </div>
         </div>
 
-        {/* STAMINA BAR */}
+        {/* Energy */}
         <div className="space-y-1">
           <div className="flex justify-between text-[10px] font-bold px-1 uppercase tracking-wider text-emerald-400">
             <span className="flex items-center gap-1"><Zap size={10} fill="currentColor"/> Energy</span>
@@ -60,7 +73,7 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
           </div>
         </div>
 
-        {/* XP BAR */}
+        {/* XP */}
         <div className="space-y-1 pt-1 border-t border-zinc-800/50">
            <div className="flex justify-between text-[10px] font-bold px-1 uppercase tracking-wider text-blue-400">
             <span className="flex items-center gap-1"><Star size={10} fill="currentColor"/> XP</span>
@@ -70,10 +83,9 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
             <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${xpPercent}%` }} />
           </div>
         </div>
-
       </div>
 
-      {/* STATS BUTTONS */}
+      {/* Stats Buttons */}
       <div className="grid grid-cols-3 gap-2 text-center">
         {['vigor', 'precision', 'aether'].map((stat) => (
           <div key={stat} className="bg-zinc-900 p-2 rounded border border-zinc-800 flex flex-col items-center relative group">
