@@ -43,6 +43,11 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
           <div className="flex items-center gap-1 text-zinc-400 font-bold text-lg">
             <ArrowDown size={18} /> {profile.depth}m
           </div>
+          {profile.max_depth !== undefined && profile.max_depth > 0 && (
+            <div className="text-xs text-zinc-500 font-semibold">
+              Best: {profile.max_depth}m
+            </div>
+          )}
           <div className="flex items-center gap-2 text-yellow-500 font-bold">
             {profile.gold} <Coins size={16} />
           </div>

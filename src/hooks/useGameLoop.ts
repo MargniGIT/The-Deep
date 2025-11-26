@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { PlayerProfile } from '@/types';
 const MAX_LEVEL = 50;
@@ -62,10 +62,38 @@ export function useGameLoop(
 ) {
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
+  const [graveDepth, setGraveDepth] = useState<number | null>(null);
+  const [canRetrieve, setCanRetrieve] = useState(false);
 
   const addLog = useCallback((message: string) => {
     setLogs((prev) => [message, ...prev].slice(0, 50));
   }, []);
+
+  // Fetch grave depth on load
+  useEffect(() => {
+    if (!userId) {
+      setGraveDepth(null);
+      setCanRetrieve(false);
+      return;
+    }
+
+    const fetchGrave = async () => {
+      const { data } = await supabase
+        .from('graves')
+        .select('depth')
+        .eq('user_id', userId)
+        .single();
+
+      if (data) {
+        setGraveDepth(data.depth);
+      } else {
+        setGraveDepth(null);
+      }
+      setCanRetrieve(false);
+    };
+
+    fetchGrave();
+  }, [userId]);
 
   const handleStatUpgrade = useCallback(async (statName: 'vigor' | 'precision' | 'aether') => {
     if (!userId) {
@@ -141,22 +169,35 @@ export function useGameLoop(
     setLoading(true);
 
     try {
+      // SAFE VARIABLE INITIALIZATION: Trust the profile, don't default to 10
       let newDepth = (player.depth || 0) + 1;
       let newStamina = player.current_stamina || 0;
       let newGold = player.gold || 0;
-      let newVigor = player.vigor || 10;
+      let newVigor = player.vigor; // Trust the profile value
       let newXP = player.xp || 0;
       let newLevel = player.level || 1;
       let newStatPoints = player.stat_points || 0;
       let logMessage = "";
       let exhaustionDamage = 0;
+      let deathCause: 'combat' | 'exhaustion' | null = null; // Track death cause for debug logs
+      let killedByMonster: string | null = null; // Track monster name for death logs
+      
+      // Track all-time best depth
+      const newMaxDepth = Math.max(newDepth, player.max_depth || 0);
 
-      // --- EXHAUSTION LOGIC ---
+      // --- GRAVE DISCOVERY CHECK ---
+      if (graveDepth !== null && newDepth === graveDepth) {
+        addLog('[!] Your lost gear is here.');
+        setCanRetrieve(true);
+      }
+
+      // --- EXPLICIT STAMINA PUNISHMENT ---
       // If you keep descending with no stamina, you take HP damage instead.
-      if (newStamina <= 0) {
-        exhaustionDamage = 2;
+      if (player.current_stamina <= 0) {
+        exhaustionDamage = 10; // Explicit stamina punishment: 10 damage
         newVigor = Math.max(0, newVigor - exhaustionDamage);
         onEffect('damage', exhaustionDamage);
+        addLog('[!] You collapse from exhaustion. (-10 HP)');
         // Stamina stays at 0 when exhausted
       } else {
         newStamina = Math.max(0, newStamina - 1);
@@ -257,13 +298,28 @@ export function useGameLoop(
         } else {
           const { data: gear } = await supabase.from('inventory').select('*, item:items(*)').eq('user_id', userId).eq('is_equipped', true);
           let bonusAtk = 0, bonusDef = 0;
-          gear?.forEach((g: any) => { bonusAtk += g.item.stats?.damage || 0; bonusDef += g.item.stats?.defense || 0; });
+          gear?.forEach((g: any) => { 
+            const stats = g.stats_override || g.item?.stats || {};
+            bonusAtk += stats.damage || 0; 
+            bonusDef += stats.defense || 0; 
+          });
 
-          const totalAtk = (player.precision || 1) + bonusAtk;
-          const totalDef = (player.vigor || 1) + bonusDef;
+          // Calculate player total stats safely
+          const playerTotalAtk = (player.precision || 0) + bonusAtk;
+          const playerTotalDef = (player.vigor || 0) + bonusDef;
 
-          const dmgToMonster = Math.max(1, totalAtk - monster.defense);
-          const dmgToPlayer = Math.max(1, monster.attack - totalDef);
+          // SAFE COMBAT MATH: Prevent Infinity and division by zero
+          // Crit multiplier (10% chance for 2x damage)
+          const critRoll = Math.random();
+          const critMultiplier = critRoll < 0.1 ? 2 : 1;
+          
+          // Clamp damage to monster: Never allow 0 or negative, prevent infinity
+          const dmgToMonster = Math.max(1, Math.floor((playerTotalAtk - monster.defense) * critMultiplier));
+          
+          // Clamp damage to player: Never allow 0 or negative
+          const dmgToPlayer = Math.max(1, monster.attack - playerTotalDef);
+          
+          // Calculate combat rounds safely
           const hitsToKill = Math.ceil(monster.hp / dmgToMonster);
           const totalDmgTaken = hitsToKill * dmgToPlayer;
 
@@ -272,21 +328,19 @@ export function useGameLoop(
           if (newVigor > 0) {
             newGold += monster.gold_reward;
             newXP += monster.xp_reward;
-            logMessage = `Defeated ${monster.name}! Took ${totalDmgTaken} dmg.`;
+            const critText = critMultiplier > 1 ? ' [CRIT!]' : '';
+            logMessage = `Defeated ${monster.name}!${critText} Took ${totalDmgTaken} dmg.`;
             onEffect('damage', totalDmgTaken);
             setTimeout(() => onEffect('gold', monster.gold_reward), 200);
             setTimeout(() => onEffect('xp', monster.xp_reward), 400);
           } else {
-            logMessage = `The ${monster.name} killed you.`;
+            // Mark combat death and store monster name
+            deathCause = 'combat';
+            killedByMonster = monster.name;
+            logMessage = `YOU DIED fighting ${monster.name}.`;
             onEffect('damage', 999);
           }
         }
-      }
-
-      // Prepend exhaustion message if applicable
-      if (exhaustionDamage > 0) {
-        const exhaustionText = `Pushing past exhaustion drains your life. (-${exhaustionDamage} HP)`;
-        logMessage = logMessage ? `${exhaustionText} ${logMessage}` : exhaustionText;
       }
 
       // Level & Death Checks
@@ -297,12 +351,93 @@ export function useGameLoop(
         logMessage += " LEVEL UP!";
         onEffect('xp', 0);
       }
+      
+      // Check for death from exhaustion (after all other damage)
+      if (newVigor <= 0 && deathCause !== 'combat') {
+        deathCause = 'exhaustion';
+      }
+      
       if (newVigor <= 0) {
-        logMessage = "YOU DIED. Resetting depth.";
-        newDepth = 0; newGold = 0; newStamina = player.max_stamina; newVigor = player.max_stamina;
+        // --- DEATH LOGIC: Hardcore Corpse Retrieval ---
+        const currentDepth = player.depth || 0;
+        const currentGold = player.gold || 0;
+
+        // Fetch ALL items (equipped AND unequipped)
+        const { data: allItems } = await supabase
+          .from('inventory')
+          .select('*')
+          .eq('user_id', userId);
+
+        // Serialize items to JSON, preserving is_equipped status
+        const itemsJson = allItems || [];
+
+        // Create grave record
+        const { error: graveError } = await supabase
+          .from('graves')
+          .insert({
+            user_id: userId,
+            depth: currentDepth,
+            gold_lost: currentGold,
+            items_json: itemsJson
+          });
+
+        if (graveError) {
+          console.error('Failed to create grave:', graveError);
+        }
+
+        // Wipe player inventory
+        const { error: deleteError } = await supabase
+          .from('inventory')
+          .delete()
+          .eq('user_id', userId);
+
+        if (deleteError) {
+          console.error('Failed to delete inventory:', deleteError);
+        }
+
+        // Find Rusty Shiv by name
+        const { data: rustyShiv } = await supabase
+          .from('items')
+          .select('id')
+          .eq('name', 'Rusty Shiv')
+          .single();
+
+        // The Mercy Drop: Insert Rusty Shiv if found
+        if (rustyShiv) {
+          const { error: shivError } = await supabase
+            .from('inventory')
+            .insert({
+              user_id: userId,
+              item_id: rustyShiv.id,
+              is_equipped: false
+            });
+
+          if (shivError) {
+            console.error('Failed to insert Rusty Shiv:', shivError);
+          }
+        }
+
+        // Reset player state
+        newDepth = 0;
+        newGold = 0;
+        newStamina = player.max_stamina;
+        newVigor = player.max_stamina;
+        
+        // DEBUG DEATH LOGS: Specific messages based on death cause
+        if (deathCause === 'combat') {
+          logMessage = `YOU DIED fighting ${killedByMonster || 'an unknown foe'}. Your gear lies at ${currentDepth}m.`;
+        } else if (deathCause === 'exhaustion') {
+          logMessage = `YOU DIED from exhaustion. Your gear lies at ${currentDepth}m.`;
+        } else {
+          logMessage = `YOU DIED. Your gear lies at ${currentDepth}m.`;
+        }
+        
+        // Update grave depth state
+        setGraveDepth(currentDepth);
+        setCanRetrieve(false);
       }
 
-      const updates = { depth: newDepth, current_stamina: newStamina, gold: newGold, vigor: newVigor, xp: newXP, level: newLevel, stat_points: newStatPoints };
+      const updates = { depth: newDepth, max_depth: newMaxDepth, current_stamina: newStamina, gold: newGold, vigor: newVigor, xp: newXP, level: newLevel, stat_points: newStatPoints };
       const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
       if (error) throw error;
 
@@ -311,7 +446,7 @@ export function useGameLoop(
 
     } catch (err) { console.error(err); addLog("Something went wrong."); }
     finally { setLoading(false); }
-  }, [userId, player, loading, addLog, onProfileUpdate, onEffect]);
+  }, [userId, player, loading, addLog, onProfileUpdate, onEffect, graveDepth]);
 
-  return { handleDescend, handleStatUpgrade, handleGoldUpgrade, logs, loading };
+  return { handleDescend, handleStatUpgrade, handleGoldUpgrade, logs, loading, canRetrieve, setCanRetrieve, addLog, setGraveDepth };
 }

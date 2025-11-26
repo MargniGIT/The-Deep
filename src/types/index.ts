@@ -73,6 +73,7 @@ export interface PlayerProfile {
   id: string;
   username: string;
   depth: number;
+  max_depth?: number;
   gold: number;
   vigor: number;
   precision: number;

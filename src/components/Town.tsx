@@ -53,12 +53,12 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, username, depth, level')
-        .order('depth', { ascending: false })
+        .select('id, username, max_depth, level')
+        .order('max_depth', { ascending: false })
         .limit(10);
 
       if (error) throw error;
-      setLeaderboard((data as PlayerProfile[]) || []);
+      setLeaderboard((data as unknown as PlayerProfile[]) || []);
     } catch (err) {
       console.error('Failed to load leaderboard:', err);
       setMessage('Failed to load leaderboard.');
@@ -654,6 +654,13 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
               <div className="text-zinc-500 text-center py-10">Loading leaderboard...</div>
             ) : (
               <div className="space-y-2">
+                {/* Header row */}
+                <div className="grid grid-cols-12 gap-2 items-center p-3 rounded-lg border border-zinc-800 bg-zinc-900/50">
+                  <div className="col-span-2 text-xs font-bold text-zinc-500 uppercase tracking-wider">Rank</div>
+                  <div className="col-span-5 text-xs font-bold text-zinc-500 uppercase tracking-wider">Name</div>
+                  <div className="col-span-3 text-xs font-bold text-zinc-500 uppercase tracking-wider">Record (m)</div>
+                  <div className="col-span-2 text-xs font-bold text-zinc-500 uppercase tracking-wider">Level</div>
+                </div>
                 {leaderboard.map((profile, index) => {
                   const rank = index + 1;
                   const isCurrentUser = userId && profile.id === userId;
@@ -674,7 +681,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
                         #{rank}
                       </div>
                       <div className="col-span-5 font-semibold truncate">{displayName}</div>
-                      <div className="col-span-3 font-mono text-sm">{profile.depth}m</div>
+                      <div className="col-span-3 font-mono text-sm">{profile.max_depth || 0}m</div>
                       <div className="col-span-2 font-bold">{profile.level || 1}</div>
                     </div>
                   );

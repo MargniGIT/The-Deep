@@ -28,6 +28,7 @@ export default function Home() {
 
   const [damageFlash, setDamageFlash] = useState(false);
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
+  const [retrieving, setRetrieving] = useState(false);
 
   // --- 1. UPDATED HANDLE EFFECT ---
   const handleEffect = useCallback((type: 'damage' | 'gold' | 'xp' | 'item', value?: number) => {
@@ -64,7 +65,7 @@ export default function Home() {
     }
   }, []);
 
-  const { handleDescend, handleStatUpgrade, handleGoldUpgrade, logs, loading: loopLoading } = useGameLoop(
+  const { handleDescend, handleStatUpgrade, handleGoldUpgrade, logs, loading: loopLoading, canRetrieve, setCanRetrieve, addLog, setGraveDepth } = useGameLoop(
     userId,
     player, 
     (p) => setPlayer(p), 
@@ -198,6 +199,148 @@ export default function Home() {
   useEffect(() => { loadPlayerAndStats(); }, [loadPlayerAndStats]);
   useEffect(() => { if (!isInventoryOpen) loadPlayerAndStats(); }, [isInventoryOpen, loadPlayerAndStats]);
 
+  // Handle grave retrieval
+  const handleRetrieveGrave = useCallback(async () => {
+    console.log('handleRetrieveGrave called', { userId, canRetrieve, retrieving });
+    if (!userId || !canRetrieve || retrieving) {
+      console.log('Early return:', { userId: !!userId, canRetrieve, retrieving });
+      return;
+    }
+
+    // Immediately disable button to prevent duplicate clicks
+    setRetrieving(true);
+    setCanRetrieve(false);
+    console.log('Starting grave retrieval...');
+    
+    // Safety timeout to ensure state resets even if something hangs
+    const timeoutId = setTimeout(() => {
+      console.warn('Retrieval taking too long, forcing state reset');
+      setRetrieving(false);
+    }, 15000); // 15 second timeout
+    
+    try {
+      // Fetch the grave data
+      const { data: grave, error: graveError } = await supabase
+        .from('graves')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (graveError) {
+        console.error('Failed to fetch grave:', graveError);
+        addLog('Failed to retrieve your grave. It may have been lost to the depths.');
+        return;
+      }
+
+      if (!grave) {
+        console.error('No grave found for user');
+        addLog('No grave found at this depth.');
+        return;
+      }
+
+      console.log('Grave found:', grave);
+
+      // Check current inventory count
+      const { count: currentCount, error: invError } = await supabase
+        .from('inventory')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId);
+
+      if (invError) {
+        console.error('Failed to check inventory:', invError);
+      }
+
+      const INVENTORY_LIMIT = 30; // Default inventory limit
+      const itemsJson = grave.items_json || [];
+      const availableSlots = INVENTORY_LIMIT - (currentCount || 0);
+
+      if (availableSlots <= 0) {
+        addLog('Your inventory is full! Make space before retrieving.');
+        setCanRetrieve(true); // Re-enable button
+        return;
+      }
+
+      // Delete the grave FIRST to prevent duplication (atomic operation)
+      const { error: deleteError } = await supabase
+        .from('graves')
+        .delete()
+        .eq('id', grave.id);
+
+      if (deleteError) {
+        console.error('Failed to delete grave:', deleteError);
+        addLog('Failed to secure your grave. Retrieval cancelled.');
+        setCanRetrieve(true); // Re-enable button
+        return;
+      }
+
+      console.log('Grave deleted, preventing duplication');
+
+      // Add gold_lost to player gold
+      const newGold = (player?.gold || 0) + (grave.gold_lost || 0);
+      const { error: goldError } = await supabase
+        .from('profiles')
+        .update({ gold: newGold })
+        .eq('id', userId);
+
+      if (goldError) {
+        console.error('Failed to update gold:', goldError);
+      } else {
+        setPlayer({ ...player!, gold: newGold });
+      }
+
+      // Re-hydrate items: Only restore what fits in inventory
+      const itemsToRestore = itemsJson.slice(0, availableSlots);
+      const itemsSkipped = itemsJson.length - itemsToRestore.length;
+      
+      console.log(`Restoring ${itemsToRestore.length} items from grave (${itemsSkipped} skipped due to inventory limit)`);
+      
+      for (const item of itemsToRestore) {
+        // Extract only the fields we need (ignore id, user_id, created_at from saved row)
+        const { error: insertError } = await supabase
+          .from('inventory')
+          .insert({
+            user_id: userId,
+            item_id: item.item_id,
+            is_equipped: item.is_equipped ?? false,
+            slot: item.slot ?? null,
+            name_override: item.name_override ?? null,
+            stats_override: item.stats_override ?? null
+          });
+
+        if (insertError) {
+          console.error('Failed to restore item:', insertError, item);
+        } else {
+          console.log('Restored item:', item.item_id, item.is_equipped ? '(equipped)' : '(unequipped)');
+        }
+      }
+      
+      console.log('Items restoration complete');
+
+      // Log success message
+      if (itemsSkipped > 0) {
+        addLog(`You reclaimed your legacy. (${itemsSkipped} items lost - inventory full)`);
+      } else {
+        addLog('You reclaimed your legacy.');
+      }
+      
+      setGraveDepth(null); // Clear grave depth after retrieval
+      
+      // Reload player stats (don't await to avoid blocking)
+      loadPlayerAndStats().catch(err => {
+        console.error('Error reloading stats:', err);
+      });
+    } catch (error) {
+      console.error('Error retrieving grave:', error);
+      addLog('Something went wrong while retrieving your grave.');
+      setCanRetrieve(true); // Re-enable button on error
+    } finally {
+      // Clear timeout and always reset retrieving state
+      clearTimeout(timeoutId);
+      setRetrieving(false);
+      console.log('Retrieval complete, resetting state');
+    }
+  }, [userId, canRetrieve, player, setCanRetrieve, loadPlayerAndStats, addLog, setGraveDepth, retrieving]);
+
   if (!userId) {
     return (
       <main className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100 font-mono max-w-md mx-auto border-x border-zinc-800 relative overflow-hidden">
@@ -268,6 +411,18 @@ export default function Home() {
           isOpen={isInventoryOpen}
           onClose={() => setIsInventoryOpen(false)}
         />
+        {/* Floating Retrieve Souls Button */}
+        {canRetrieve && (
+          <div className="absolute bottom-20 left-0 right-0 flex justify-center z-50 pointer-events-auto px-4">
+            <button
+              onClick={handleRetrieveGrave}
+              disabled={retrieving}
+              className="bg-zinc-800 hover:bg-zinc-700 text-red-400 px-4 py-2 rounded font-bold text-xs border border-red-500/50 transition-all hover:border-red-400 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg w-full max-w-xs"
+            >
+              {retrieving ? 'RETRIEVING...' : 'RETRIEVE SOULS'}
+            </button>
+          </div>
+        )}
       </section>
 
       <footer className="p-4 border-t border-zinc-800 bg-zinc-900 grid grid-cols-3 gap-2">
