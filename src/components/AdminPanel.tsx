@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { PlayerProfile } from '@/types';
 import { supabase } from '@/lib/supabase';
+import { MASTER_TITLES } from '@/constants/titles';
 
 interface AdminPanelProps {
   player: PlayerProfile;
@@ -112,6 +113,53 @@ export default function AdminPanel({ player, onUpdate }: AdminPanelProps) {
     }
   };
 
+  const handleUnlockAllTitles = async () => {
+    if (!player.id) return;
+    setLoading(true);
+    try {
+      // Get all existing titles for this user
+      const { data: existingTitles } = await supabase
+        .from('user_titles')
+        .select('title_id')
+        .eq('user_id', player.id);
+
+      const existingTitleIds = new Set(existingTitles?.map(t => t.title_id) || []);
+
+      // Get all title IDs from MASTER_TITLES
+      const allTitleIds = Object.keys(MASTER_TITLES) as Array<keyof typeof MASTER_TITLES>;
+
+      // Find titles that need to be unlocked
+      const titlesToUnlock = allTitleIds.filter(titleId => !existingTitleIds.has(titleId));
+
+      if (titlesToUnlock.length === 0) {
+        console.log('All titles already unlocked');
+        setLoading(false);
+        return;
+      }
+
+      // Insert all missing titles
+      const titlesToInsert = titlesToUnlock.map(titleId => ({
+        user_id: player.id,
+        title_id: titleId
+      }));
+
+      const { error } = await supabase
+        .from('user_titles')
+        .insert(titlesToInsert);
+
+      if (error) {
+        console.error('Failed to unlock titles:', error);
+      } else {
+        console.log(`Unlocked ${titlesToUnlock.length} title(s)`);
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Error unlocking titles:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="fixed bottom-4 right-4 z-50 pointer-events-auto">
       <div className="bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-lg p-3 shadow-lg">
@@ -144,6 +192,13 @@ export default function AdminPanel({ player, onUpdate }: AdminPanelProps) {
             className="px-3 py-1.5 text-xs bg-red-600/80 hover:bg-red-600 text-white rounded font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Reset Run
+          </button>
+          <button
+            onClick={handleUnlockAllTitles}
+            disabled={loading}
+            className="px-3 py-1.5 text-xs bg-indigo-600/80 hover:bg-indigo-600 text-white rounded font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Unlock All Titles
           </button>
         </div>
       </div>

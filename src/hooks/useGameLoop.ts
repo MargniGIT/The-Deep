@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { PlayerProfile } from '@/types';
+import { MASTER_TITLES } from '@/constants/titles';
 const MAX_LEVEL = 50;
 
 // Helper function to calculate training cost
@@ -183,6 +184,40 @@ export function useGameLoop(
       });
     }
   }, [userId, achievements, onEffect]);
+
+  // Helper function to unlock titles
+  const unlockTitle = useCallback(async (titleId: keyof typeof MASTER_TITLES) => {
+    if (!userId) return;
+    
+    try {
+      // Check if title already exists in user_titles
+      const { data: existingTitle } = await supabase
+        .from('user_titles')
+        .select('title_id')
+        .eq('user_id', userId)
+        .eq('title_id', titleId)
+        .maybeSingle();
+      
+      if (existingTitle) {
+        // Title already unlocked
+        return;
+      }
+      
+      // Insert new title
+      const { error } = await supabase
+        .from('user_titles')
+        .insert({
+          user_id: userId,
+          title_id: titleId
+        });
+      
+      if (error) {
+        console.error('Error unlocking title:', error);
+      }
+    } catch (err) {
+      console.error('Error unlocking title (catch):', err);
+    }
+  }, [userId]);
 
   // Helper function to check for ghost users at a given depth
   const checkForGhosts = useCallback(async (depth: number): Promise<void> => {
@@ -398,6 +433,16 @@ export function useGameLoop(
       
       // Track all-time best depth
       const newMaxDepth = Math.max(newDepth, player.max_depth || 0);
+
+      // Title: Survivor (reach depth 100)
+      if (newDepth >= 100 && (player.max_depth || 0) < 100) {
+        unlockTitle('survivor');
+      }
+
+      // Title: Deep Diver (reach depth 1000)
+      if (newDepth >= 1000 && (player.max_depth || 0) < 1000) {
+        unlockTitle('deep_diver');
+      }
 
       // Achievement: Deep Diver (reach depth 500)
       if (newDepth >= 500) {
@@ -924,7 +969,7 @@ export function useGameLoop(
 
     } catch (err) { console.error(err); addLog("Something went wrong."); }
     finally { setLoading(false); }
-  }, [userId, player, loading, addLog, onProfileUpdate, onEffect, graveDepth, checkForGhosts, unlockAchievement]);
+  }, [userId, player, loading, addLog, onProfileUpdate, onEffect, graveDepth, checkForGhosts, unlockAchievement, unlockTitle]);
 
   const handleExplore = useCallback(async () => {
     if (!userId) {
@@ -1248,6 +1293,9 @@ export function useGameLoop(
           // Achievement: Boss Slayer (defeat a boss)
           unlockAchievement('boss_slayer', 'Boss Slayer', 'Defeated your first boss');
           
+          // Title: Beast Slayer (defeat a boss)
+          unlockTitle('slayer');
+          
           // Rat King guaranteed drop
           if (activeBoss.name === 'The Rat King') {
             // Find Rat Hide Vest by name
@@ -1367,7 +1415,7 @@ export function useGameLoop(
       setActiveBoss(null);
       setLoading(false);
     }
-  }, [userId, player, activeBoss, onProfileUpdate, addLog, onEffect, unlockAchievement]);
+  }, [userId, player, activeBoss, onProfileUpdate, addLog, onEffect, unlockAchievement, unlockTitle]);
 
   return { 
     handleDescend, 

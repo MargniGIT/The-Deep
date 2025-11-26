@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, Home, ArrowLeft, Coins, Trash2, Hammer, Swords, ArrowUp, Check } from 'lucide-react';
-import { GiCampingTent, GiReceiveMoney, GiAnvilImpact, GiStrongbox, GiTrophyCup, GiElevator, GiScrollUnfurled } from 'react-icons/gi';
+import { GiCampingTent, GiReceiveMoney, GiAnvilImpact, GiStrongbox, GiTrophyCup, GiElevator, GiScrollUnfurled, GiMedal } from 'react-icons/gi';
 import type { PlayerProfile, InventoryItem } from '@/types';
 import { supabase } from '@/lib/supabase';
+import { MASTER_TITLES } from '@/constants/titles';
+import SakuraNameplate from '@/components/effects/SakuraNameplate';
 
 interface TownProps {
   userId: string | null;
@@ -15,7 +17,7 @@ interface TownProps {
 
 export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, onBankTransaction }: TownProps) {
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<'main' | 'merchant' | 'forge' | 'trainer' | 'leaderboard' | 'travel' | 'vault'>('main');
+  const [view, setView] = useState<'main' | 'merchant' | 'forge' | 'trainer' | 'leaderboard' | 'travel' | 'vault' | 'titles'>('main');
   const [sellItems, setSellItems] = useState<InventoryItem[]>([]);
   const [scrapCount, setScrapCount] = useState(0);
   const [message, setMessage] = useState('');
@@ -23,6 +25,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState('');
   const [ingredientCounts, setIngredientCounts] = useState<Record<string, Record<string, { have: number; need: number }>>>({});
+  const [unlockedTitles, setUnlockedTitles] = useState<Set<string>>(new Set());
 
   // Helper function to calculate training cost
   const getTrainingCost = (bought: number) => 100 * (bought + 1);
@@ -84,7 +87,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, username, max_depth, level')
+        .select('id, username, max_depth, level, active_title')
         .order('max_depth', { ascending: false })
         .limit(10);
 
@@ -121,6 +124,48 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
     setIngredientCounts(counts);
   }, [userId]);
 
+  // Load unlocked titles
+  const loadUnlockedTitles = useCallback(async () => {
+    if (!userId) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_titles')
+        .select('title_id')
+        .eq('user_id', userId);
+      
+      if (!error && data) {
+        const titleSet = new Set(data.map(t => t.title_id));
+        setUnlockedTitles(titleSet);
+      }
+    } catch (err) {
+      console.error('Error loading titles:', err);
+    }
+  }, [userId]);
+
+  // Equip a title
+  const handleEquipTitle = async (titleId: string) => {
+    if (!userId) return;
+    
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ active_title: titleId })
+        .eq('id', userId);
+      
+      if (error) throw error;
+      
+      setMessage(`✓ Equipped ${MASTER_TITLES[titleId as keyof typeof MASTER_TITLES]?.label || titleId}`);
+      onRest({ active_title: titleId } as Partial<PlayerProfile>);
+    } catch (err) {
+      console.error(err);
+      setMessage('Failed to equip title.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (view === 'merchant') loadSellableItems();
     if (view === 'forge') {
@@ -128,7 +173,8 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
       loadIngredientCounts();
     }
     if (view === 'leaderboard') loadLeaderboard();
-  }, [view, loadScrapCount, loadIngredientCounts, loadSellableItems, loadLeaderboard]);
+    if (view === 'titles') loadUnlockedTitles();
+  }, [view, loadScrapCount, loadIngredientCounts, loadSellableItems, loadLeaderboard, loadUnlockedTitles]);
 
   // Reset view to main when switching to campsite mode (to prevent accessing merchant/forge)
   useEffect(() => {
@@ -433,6 +479,31 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
       setMessage(`Crafted ${recipe.name}!`);
       onRest({ gold: newGold });
       
+      // Title: Forge Master (craft an item)
+      try {
+        const { data: existingTitle } = await supabase
+          .from('user_titles')
+          .select('title_id')
+          .eq('user_id', userId)
+          .eq('title_id', 'forge_master')
+          .maybeSingle();
+        
+        if (!existingTitle) {
+          await supabase
+            .from('user_titles')
+            .insert({
+              user_id: userId,
+              title_id: 'forge_master'
+            });
+          // Reload titles if we're on the titles view
+          if (view === 'titles') {
+            loadUnlockedTitles();
+          }
+        }
+      } catch (err) {
+        console.error('Error unlocking forge_master title:', err);
+      }
+      
       // Reload scrap count if it changed
       if (recipe.ingredients.some(ing => ing.name === 'Scrap Metal')) {
         loadScrapCount();
@@ -505,7 +576,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
             <Home className="text-yellow-500" size={24} />
             <div className="flex-1">
               <h2 className="text-2xl font-bold text-zinc-100">
-                {isCampsite && view === 'main' ? 'Temporary Camp' : view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : view === 'trainer' ? 'Combat Trainer' : view === 'travel' ? 'Abyssal Elevator' : view === 'vault' ? 'Iron Vault' : 'Hall of Records'}
+                {isCampsite && view === 'main' ? 'Temporary Camp' : view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : view === 'trainer' ? 'Combat Trainer' : view === 'travel' ? 'Abyssal Elevator' : view === 'vault' ? 'Iron Vault' : view === 'titles' ? 'Titles' : 'Hall of Records'}
               </h2>
               {view === 'main' && (
                 <div className="flex items-center gap-2 mt-1">
@@ -716,6 +787,19 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 <div className="flex-1">
                   <h3 className="font-bold text-lg">Hall of Records</h3>
                   <p className="text-zinc-500 text-sm">View Top Delvers</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => { setView('titles'); setMessage(''); }}
+                className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
+              >
+                <div className="bg-zinc-800 p-3 rounded text-purple-500 group-hover:text-purple-400">
+                  <GiMedal size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg">Titles</h3>
+                  <p className="text-zinc-500 text-sm">Equip Your Achievements</p>
                 </div>
               </button>
             </>
@@ -1148,6 +1232,67 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
           </div>
         )}
 
+        {/* --- VIEW: TITLES --- */}
+        {view === 'titles' && (
+          <div className="flex flex-col gap-4 pb-4 pr-2">
+            <div className="text-center space-y-2 mb-4">
+              <GiMedal size={48} className="text-purple-500 mx-auto" />
+              <h3 className="text-xl font-bold text-zinc-300">Titles</h3>
+              <p className="text-zinc-500 text-sm max-w-xs mx-auto">
+                Equip titles earned through your adventures.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {Object.entries(MASTER_TITLES).map(([titleId, titleData]) => {
+                const isUnlocked = unlockedTitles.has(titleId);
+                const isEquipped = player?.active_title === titleId;
+                
+                return (
+                  <div
+                    key={titleId}
+                    className={`bg-zinc-900 p-4 rounded-lg border ${
+                      isEquipped
+                        ? 'border-purple-500 bg-purple-900/20'
+                        : isUnlocked
+                        ? 'border-zinc-800 hover:border-zinc-600'
+                        : 'border-zinc-800 opacity-60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        {isUnlocked ? (
+                          <div
+                            className={titleData.style}
+                            onClick={() => !isEquipped && handleEquipTitle(titleId)}
+                            style={{ cursor: isEquipped ? 'default' : 'pointer' }}
+                          >
+                            {titleData.label}
+                          </div>
+                        ) : (
+                          <div className="text-zinc-600">???</div>
+                        )}
+                      </div>
+                      {isEquipped && (
+                        <span className="text-xs text-purple-400 font-bold uppercase">Equipped</span>
+                      )}
+                      {isUnlocked && !isEquipped && (
+                        <button
+                          onClick={() => handleEquipTitle(titleId)}
+                          disabled={loading}
+                          className="px-3 py-1.5 bg-purple-900/50 hover:bg-purple-800 text-purple-200 border border-purple-700 rounded text-xs font-semibold transition-all disabled:opacity-50"
+                        >
+                          Equip
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* --- VIEW: LEADERBOARD --- */}
         {view === 'leaderboard' && (
           <div className="flex flex-col gap-4 pb-4 pr-2">
@@ -1162,7 +1307,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
             {leaderboard.length === 0 ? (
               <div className="text-zinc-500 text-center py-10">Loading leaderboard...</div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2 overflow-visible">
                 {/* Header row */}
                 <div className="grid grid-cols-12 gap-2 items-center p-3 rounded-lg border border-zinc-800 bg-zinc-900/50">
                   <div className="col-span-2 text-xs font-bold text-zinc-500 uppercase tracking-wider">Rank</div>
@@ -1174,7 +1319,14 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                   const rank = index + 1;
                   const isCurrentUser = userId && profile.id === userId;
                   const displayName = !profile.username || profile.username === 'New Delver' ? 'New Delver' : profile.username;
+                  
+                  // Get title style if active_title exists
+                  const titleStyle = profile.active_title && MASTER_TITLES[profile.active_title as keyof typeof MASTER_TITLES]
+                    ? MASTER_TITLES[profile.active_title as keyof typeof MASTER_TITLES].style
+                    : 'text-zinc-200';
 
+                  const isRankOne = rank === 1;
+                  
                   return (
                     <div
                       key={profile.id}
@@ -1182,14 +1334,20 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                         isCurrentUser
                           ? 'bg-yellow-900/20 border-yellow-600/50 text-yellow-200'
                           : 'bg-zinc-900 border-zinc-800 text-zinc-200'
-                      }`}
+                      } ${isRankOne ? 'overflow-visible' : ''}`}
                     >
                       <div className={`col-span-2 font-bold text-lg ${
                         rank === 1 ? 'text-yellow-500' : rank === 2 ? 'text-zinc-400' : rank === 3 ? 'text-amber-600' : 'text-zinc-500'
                       }`}>
                         #{rank}
                       </div>
-                      <div className="col-span-5 font-semibold truncate">{displayName}</div>
+                      <div className={`col-span-5 font-semibold relative ${profile.active_title === 'blossom' ? 'overflow-visible z-10' : isRankOne ? 'overflow-visible' : 'truncate'}`}>
+                        {profile.active_title === 'blossom' ? (
+                          <SakuraNameplate name={displayName} />
+                        ) : (
+                          <span className={titleStyle}>{displayName}</span>
+                        )}
+                      </div>
                       <div className="col-span-3 font-mono text-sm">{profile.max_depth || 0}m</div>
                       <div className="col-span-2 font-bold">{profile.level || 1}</div>
                     </div>

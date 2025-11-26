@@ -3,6 +3,7 @@ import { Coins, ArrowDown, Plus } from 'lucide-react';
 import { GiHearts, GiLightningTrio, GiStarsStack } from 'react-icons/gi';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
+import { MASTER_TITLES } from '@/constants/titles';
 
 interface StatsProps {
   profile: PlayerProfile;
@@ -41,6 +42,23 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
       {/* Top Row */}
       <div className="flex justify-between items-end">
         <div className="flex flex-col">
+          {/* DISPLAY ACTIVE TITLE HERE */}
+          {profile.active_title && MASTER_TITLES[profile.active_title as keyof typeof MASTER_TITLES] && (
+            <div className="mb-2">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={profile.active_title}
+                  initial={{ opacity: 0, y: -5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                  transition={{ duration: 0.3 }}
+                  className={MASTER_TITLES[profile.active_title as keyof typeof MASTER_TITLES].style}
+                >
+                  {MASTER_TITLES[profile.active_title as keyof typeof MASTER_TITLES].label}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          )}
           {/* DISPLAY BIOME NAME HERE */}
           <div className="mb-2 border-b-2 border-white/20 pb-2">
             <AnimatePresence mode="wait">

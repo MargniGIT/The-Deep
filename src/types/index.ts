@@ -33,6 +33,7 @@ export interface PlayerProfile {
   is_admin?: boolean;
   health?: number; // Current health (separate from vigor stat)
   max_health?: number; // Max health (separate from max_stamina)
+  active_title?: string; // Currently equipped title ID
 }
 
 export interface Item {
