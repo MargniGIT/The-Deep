@@ -71,6 +71,15 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
     if (view === 'leaderboard') loadLeaderboard();
   }, [view]);
 
+  // Reset view to main when switching to campsite mode (to prevent accessing merchant/forge)
+  useEffect(() => {
+    if (!player) return;
+    const isCampsite = player.depth > 0;
+    if (isCampsite && (view === 'merchant' || view === 'forge')) {
+      setView('main');
+    }
+  }, [player, view]);
+
   // Clear success message after a delay
   useEffect(() => {
     if (message && message.includes('✓')) {
@@ -80,6 +89,9 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
   }, [message]);
 
   if (!player) return null;
+
+  // Determine if we're in Campsite mode (depth > 0)
+  const isCampsite = player.depth > 0;
 
   // --- ACTIONS ---
 
@@ -118,6 +130,45 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
     } catch (err) { 
       console.error(err); 
       setMessage("Failed to ascend.");
+    }
+    finally { setLoading(false); }
+  };
+
+  const handleRoughSleep = async () => {
+    if (!userId) return;
+
+    setLoading(true);
+    try {
+      // 30% chance of ambush
+      const isAmbushed = Math.random() < 0.3;
+      
+      if (isAmbushed) {
+        // Ambush: Take 10-20 damage (Vigor) and gain NO stamina
+        const damage = Math.floor(Math.random() * 11) + 10; // 10-20 damage
+        const newVigor = Math.max(0, (player.vigor || player.max_stamina) - damage);
+        
+        const { error } = await supabase.from('profiles')
+          .update({ vigor: newVigor })
+          .eq('id', userId);
+
+        if (error) throw error;
+        setMessage("Something attacked you in your sleep!");
+        onRest({ vigor: newVigor });
+      } else {
+        // Safe sleep: +20 Stamina
+        const newStamina = Math.min(player.max_stamina, (player.current_stamina || 0) + 20);
+        
+        const { error } = await supabase.from('profiles')
+          .update({ current_stamina: newStamina })
+          .eq('id', userId);
+
+        if (error) throw error;
+        setMessage("You rested uneasily. +20 Stamina.");
+        onRest({ current_stamina: newStamina });
+      }
+    } catch (err) { 
+      console.error(err); 
+      setMessage("Failed to rest.");
     }
     finally { setLoading(false); }
   };
@@ -319,7 +370,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
             <Home className="text-yellow-500" size={24} />
             <div className="flex-1">
               <h2 className="text-2xl font-bold text-zinc-100">
-                {view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : view === 'trainer' ? 'Combat Trainer' : 'Hall of Records'}
+                {isCampsite && view === 'main' ? 'Temporary Camp' : view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : view === 'trainer' ? 'Combat Trainer' : 'Hall of Records'}
               </h2>
               {view === 'main' && (
                 <div className="flex items-center gap-2 mt-1">
@@ -405,93 +456,114 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
         {/* --- VIEW: MAIN MENU --- */}
         {view === 'main' && (
           <div className="flex flex-col gap-4 pb-4">
-          {player.depth > 0 && (
-            <button
-              onClick={handleAscend}
-              disabled={loading}
-              className="flex items-center gap-4 bg-zinc-900 border-2 border-blue-500 p-4 rounded-lg hover:border-blue-400 transition-all text-left group disabled:opacity-50"
-            >
-              <div className="bg-zinc-800 p-3 rounded text-blue-400 group-hover:text-blue-300">
-                <ArrowUp size={24} />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-bold text-lg">Ascend to Surface</h3>
-                <p className="text-zinc-500 text-sm">Return to the surface (0m)</p>
-              </div>
-            </button>
+          {/* CAMPSITE MODE (depth > 0) */}
+          {isCampsite ? (
+            <>
+              <button
+                onClick={handleRoughSleep}
+                disabled={loading}
+                className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group disabled:opacity-50"
+              >
+                <div className="bg-zinc-800 p-3 rounded text-blue-400 group-hover:text-blue-300">
+                  <Bed size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg">Rough Sleep</h3>
+                  <p className="text-zinc-500 text-sm">Free rest (+20 Stamina, 30% Ambush Risk)</p>
+                </div>
+                <span className="font-mono text-green-500 font-bold">FREE</span>
+              </button>
+
+              <button
+                onClick={handleAscend}
+                disabled={loading}
+                className="flex items-center gap-4 bg-zinc-900 border-2 border-blue-500 p-4 rounded-lg hover:border-blue-400 transition-all text-left group disabled:opacity-50"
+              >
+                <div className="bg-zinc-800 p-3 rounded text-blue-400 group-hover:text-blue-300">
+                  <ArrowUp size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg">Ascend to Surface</h3>
+                  <p className="text-zinc-500 text-sm">Return to the surface (0m)</p>
+                </div>
+              </button>
+            </>
+          ) : (
+            <>
+              {/* TOWN MODE (depth == 0) */}
+              <button
+                onClick={handleRest}
+                disabled={loading || player.gold < 10}
+                className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group disabled:opacity-50"
+              >
+                <div className="bg-zinc-800 p-3 rounded text-blue-400 group-hover:text-blue-300">
+                  <Bed size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg">Rest & Recover</h3>
+                  <p className="text-zinc-500 text-sm">Restore Health & Energy</p>
+                </div>
+                <span className="font-mono text-yellow-500 font-bold">10 G</span>
+              </button>
+
+              <button
+                onClick={() => { setView('merchant'); setMessage(''); }}
+                className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
+              >
+                <div className="bg-zinc-800 p-3 rounded text-green-400 group-hover:text-green-300">
+                  <Store size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg">Scrap Merchant</h3>
+                  <p className="text-zinc-500 text-sm">Sell loot for Gold</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => { setView('forge'); setMessage(''); }}
+                className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
+              >
+                <div className="bg-zinc-800 p-3 rounded text-red-500 group-hover:text-red-400">
+                  <Anvil size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg">The Forge</h3>
+                  <p className="text-zinc-500 text-sm">Craft Gear from Scrap</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => { setView('trainer'); setMessage(''); }}
+                className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
+              >
+                <div className="bg-zinc-800 p-3 rounded text-purple-500 group-hover:text-purple-400">
+                  <Swords size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg">Combat Trainer</h3>
+                  <p className="text-zinc-500 text-sm">Train Stats with Gold</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => { setView('leaderboard'); setMessage(''); }}
+                className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
+              >
+                <div className="bg-zinc-800 p-3 rounded text-yellow-500 group-hover:text-yellow-400">
+                  <Trophy size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg">Hall of Records</h3>
+                  <p className="text-zinc-500 text-sm">View Top Delvers</p>
+                </div>
+              </button>
+            </>
           )}
-
-          <button
-            onClick={handleRest}
-            disabled={loading || player.gold < 10}
-            className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group disabled:opacity-50"
-          >
-            <div className="bg-zinc-800 p-3 rounded text-blue-400 group-hover:text-blue-300">
-              <Bed size={24} />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-bold text-lg">Rest & Recover</h3>
-              <p className="text-zinc-500 text-sm">Restore Health & Energy</p>
-            </div>
-            <span className="font-mono text-yellow-500 font-bold">10 G</span>
-          </button>
-
-          <button
-            onClick={() => { setView('merchant'); setMessage(''); }}
-            className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
-          >
-            <div className="bg-zinc-800 p-3 rounded text-green-400 group-hover:text-green-300">
-              <Store size={24} />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-bold text-lg">Scrap Merchant</h3>
-              <p className="text-zinc-500 text-sm">Sell loot for Gold</p>
-            </div>
-          </button>
-
-          <button
-            onClick={() => { setView('forge'); setMessage(''); }}
-            className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
-          >
-            <div className="bg-zinc-800 p-3 rounded text-red-500 group-hover:text-red-400">
-              <Anvil size={24} />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-bold text-lg">The Forge</h3>
-              <p className="text-zinc-500 text-sm">Craft Gear from Scrap</p>
-            </div>
-          </button>
-
-          <button
-            onClick={() => { setView('trainer'); setMessage(''); }}
-            className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
-          >
-            <div className="bg-zinc-800 p-3 rounded text-purple-500 group-hover:text-purple-400">
-              <Swords size={24} />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-bold text-lg">Combat Trainer</h3>
-              <p className="text-zinc-500 text-sm">Train Stats with Gold</p>
-            </div>
-          </button>
-
-          <button
-            onClick={() => { setView('leaderboard'); setMessage(''); }}
-            className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
-          >
-            <div className="bg-zinc-800 p-3 rounded text-yellow-500 group-hover:text-yellow-400">
-              <Trophy size={24} />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-bold text-lg">Hall of Records</h3>
-              <p className="text-zinc-500 text-sm">View Top Delvers</p>
-            </div>
-          </button>
         </div>
       )}
 
-        {/* --- VIEW: MERCHANT --- */}
-        {view === 'merchant' && (
+        {/* --- VIEW: MERCHANT --- (Only available at depth 0) */}
+        {view === 'merchant' && !isCampsite && (
           <div className="flex flex-col gap-2 pb-4 pr-2">
           {commonCount > 0 && (
             <button
@@ -531,8 +603,8 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
         </div>
       )}
 
-        {/* --- VIEW: FORGE --- */}
-        {view === 'forge' && (
+        {/* --- VIEW: FORGE --- (Only available at depth 0) */}
+        {view === 'forge' && !isCampsite && (
           <div className="flex flex-col items-center justify-center gap-6 pb-4">
           <div className="text-center space-y-2">
             <Anvil size={48} className="text-zinc-700 mx-auto" />
