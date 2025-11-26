@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { PlayerProfile } from '@/types';
 const MAX_LEVEL = 50;
@@ -91,17 +91,72 @@ export function useGameLoop(
   userId: string | null,
   player: PlayerProfile | null,
   onProfileUpdate: (newProfile: PlayerProfile) => void,
-  onEffect: (type: 'damage' | 'gold' | 'xp' | 'item' | 'ghost', value?: number) => void
+  onEffect: (type: 'damage' | 'gold' | 'xp' | 'item' | 'ghost' | 'achievement', value?: number, achievementData?: { title: string; description: string }) => void
 ) {
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [graveDepth, setGraveDepth] = useState<number | null>(null);
   const [canRetrieve, setCanRetrieve] = useState(false);
   const [activeBoss, setActiveBoss] = useState<any | null>(null);
+  const [achievements, setAchievements] = useState<Set<string>>(new Set());
+  const achievementsLoadedRef = useRef(false);
 
   const addLog = useCallback((message: string) => {
     setLogs((prev) => [message, ...prev].slice(0, 50));
   }, []);
+
+  // Load achievements on mount
+  useEffect(() => {
+    if (!userId || achievementsLoadedRef.current) return;
+    
+    const loadAchievements = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('user_achievements')
+          .select('achievement_id')
+          .eq('user_id', userId);
+        
+        if (!error && data) {
+          const achievementSet = new Set(data.map(a => a.achievement_id));
+          setAchievements(achievementSet);
+          achievementsLoadedRef.current = true;
+        }
+      } catch (err) {
+        console.error('Error loading achievements:', err);
+      }
+    };
+    
+    loadAchievements();
+  }, [userId]);
+
+  // Helper function to unlock achievements
+  const unlockAchievement = useCallback(async (id: string, title: string, desc: string) => {
+    if (!userId) return;
+    
+    // Check if already unlocked
+    if (achievements.has(id)) return;
+    
+    try {
+      // Insert into database
+      const { error } = await supabase
+        .from('user_achievements')
+        .insert({
+          user_id: userId,
+          achievement_id: id
+        });
+      
+      if (!error) {
+        // Update local state
+        setAchievements(prev => new Set([...prev, id]));
+        // Trigger achievement callback
+        onEffect('achievement', undefined, { title, description: desc });
+      } else {
+        console.error('Error unlocking achievement:', error);
+      }
+    } catch (err) {
+      console.error('Error unlocking achievement:', err);
+    }
+  }, [userId, achievements, onEffect]);
 
   // Helper function to check for ghost users at a given depth
   const checkForGhosts = useCallback(async (depth: number): Promise<void> => {
@@ -317,6 +372,11 @@ export function useGameLoop(
       
       // Track all-time best depth
       const newMaxDepth = Math.max(newDepth, player.max_depth || 0);
+
+      // Achievement: Deep Diver (reach depth 500)
+      if (newDepth >= 500) {
+        unlockAchievement('deep_diver', 'Deep Diver', 'Reached a depth of 500 meters');
+      }
 
       // --- AETHER GOLD MULTIPLIER ---
       const goldMult = 1 + ((player.aether || 0) * 0.05); // 5% bonus per Aether point
@@ -606,6 +666,11 @@ export function useGameLoop(
         newHealth = maxHealth; newStamina = player.max_stamina;
         logMessage += " LEVEL UP!";
         onEffect('xp', 0);
+        
+        // Achievement: Seasoned Veteran (reach level 10)
+        if (newLevel >= 10) {
+          unlockAchievement('seasoned_veteran', 'Seasoned Veteran', 'Reached level 10');
+        }
       }
       
       // Check for death from exhaustion (after all other damage)
@@ -790,12 +855,17 @@ export function useGameLoop(
       const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
       if (error) throw error;
 
+      // Achievement: Hoarder (accumulate 1000 gold)
+      if (newGold >= 1000) {
+        unlockAchievement('hoarder', 'Hoarder', 'Accumulated 1000 gold');
+      }
+
       addLog(logMessage);
       onProfileUpdate({ ...player, ...updates });
 
     } catch (err) { console.error(err); addLog("Something went wrong."); }
     finally { setLoading(false); }
-  }, [userId, player, loading, addLog, onProfileUpdate, onEffect, graveDepth, checkForGhosts]);
+  }, [userId, player, loading, addLog, onProfileUpdate, onEffect, graveDepth, checkForGhosts, unlockAchievement]);
 
   const handleExplore = useCallback(async () => {
     if (!userId) {
@@ -1022,6 +1092,11 @@ export function useGameLoop(
       const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
       if (error) throw error;
 
+      // Achievement: Hoarder (accumulate 1000 gold)
+      if (newGold >= 1000) {
+        unlockAchievement('hoarder', 'Hoarder', 'Accumulated 1000 gold');
+      }
+
       addLog(logMessage);
       onProfileUpdate({ ...player, ...updates });
 
@@ -1032,7 +1107,7 @@ export function useGameLoop(
     finally { 
       setLoading(false); 
     }
-  }, [userId, player, loading, addLog, onProfileUpdate, onEffect, checkForGhosts]);
+  }, [userId, player, loading, addLog, onProfileUpdate, onEffect, checkForGhosts, unlockAchievement]);
 
   // Resolve boss fight (called from CombatModal)
   const resolveBossFight = useCallback(async (result: 'victory' | 'defeat', finalPlayerHp: number) => {
@@ -1059,6 +1134,9 @@ export function useGameLoop(
           addLog(`Boss Defeated! +${goldReward} Gold, +${xpReward} XP`);
           onEffect('gold', goldReward);
           onEffect('xp', xpReward);
+          
+          // Achievement: Boss Slayer (defeat a boss)
+          unlockAchievement('boss_slayer', 'Boss Slayer', 'Defeated your first boss');
         }
       } else {
         // Defeat - trigger death logic
@@ -1137,7 +1215,7 @@ export function useGameLoop(
       setActiveBoss(null);
       setLoading(false);
     }
-  }, [userId, player, activeBoss, onProfileUpdate, addLog, onEffect]);
+  }, [userId, player, activeBoss, onProfileUpdate, addLog, onEffect, unlockAchievement]);
 
   return { 
     handleDescend, 

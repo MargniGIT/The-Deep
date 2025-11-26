@@ -9,6 +9,7 @@ import InventoryModal from '@/components/InventoryModal';
 import CombatModal from '@/components/CombatModal';
 import AdminPanel from '@/components/AdminPanel';
 import BiomeBackground from '@/components/BiomeBackground';
+import AchievementToast from '@/components/AchievementToast';
 import { supabase } from '@/lib/supabase';
 import type { PlayerProfile, InventoryItem } from '@/types';
 import { Shield, Sword } from 'lucide-react';
@@ -50,12 +51,27 @@ export default function Home() {
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [retrieving, setRetrieving] = useState(false);
   const [bossInventory, setBossInventory] = useState<InventoryItem[]>([]);
+  const [achievementNotification, setAchievementNotification] = useState<{ title: string; icon?: string; description: string } | null>(null);
+  const [loadingError, setLoadingError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   // --- 1. UPDATED HANDLE EFFECT ---
-  const handleEffect = useCallback((type: 'damage' | 'gold' | 'xp' | 'item' | 'ghost', value?: number) => {
+  const handleEffect = useCallback((type: 'damage' | 'gold' | 'xp' | 'item' | 'ghost' | 'achievement', value?: number, achievementData?: { title: string; description: string }) => {
     if (type === 'damage') {
       setDamageFlash(true);
       setTimeout(() => setDamageFlash(false), 300);
+    }
+
+    if (type === 'achievement' && achievementData) {
+      setAchievementNotification({
+        title: achievementData.title,
+        description: achievementData.description
+      });
+      // Auto-hide after 5 seconds
+      setTimeout(() => {
+        setAchievementNotification(null);
+      }, 5000);
+      return;
     }
 
     const id = Date.now() + Math.random();
@@ -143,8 +159,11 @@ export default function Home() {
   }, []);
 
   const loadPlayerAndStats = useCallback(async (currentUserId: string) => {
-    // Try 5 times to find the profile (Waiting for DB Trigger)
-    for (let i = 0; i < 5; i++) {
+    // Try up to 15 times with increasing delays (for slower mobile/network connections)
+    const maxRetries = 15;
+    const baseDelay = 500;
+    
+    for (let i = 0; i < maxRetries; i++) {
       try {
         // 1. Try to fetch
         const { data: profile, error: profileError } = await supabase
@@ -153,8 +172,36 @@ export default function Home() {
           .eq('id', currentUserId)
           .single();
 
+        // Handle 406 errors specifically (Not Acceptable - usually a header/format issue)
+        if (profileError) {
+          const errorCode = (profileError as any).code;
+          const errorStatus = (profileError as any).status || (profileError as any).statusCode;
+          
+          // If it's a 406 error, log it but continue retrying (might be transient)
+          if (errorStatus === 406 || errorCode === '406' || (profileError as any).message?.includes('406')) {
+            console.warn(`HTTP 406 error on retry ${i + 1}/${maxRetries}. This may be a transient issue.`);
+            // Wait a bit longer for 406 errors before retrying
+            await new Promise(resolve => setTimeout(resolve, baseDelay * 2));
+            continue;
+          }
+          
+          // If it's a "not found" error (PGRST116), the profile doesn't exist yet - continue retrying
+          if (errorCode === 'PGRST116' || errorStatus === 404) {
+            // Profile doesn't exist yet, continue retrying
+            const delay = baseDelay * (1 + i * 0.2);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          
+          // For other errors, log and continue
+          console.error(`Profile fetch error on retry ${i + 1}/${maxRetries}:`, profileError);
+          const delay = baseDelay * (1 + i * 0.2);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
         // 2. If we found it, Great! Load stats and exit.
-        if (profile && !profileError) {
+        if (profile) {
           
           // Fetch Gear
           const { data: gear } = await supabase
@@ -178,27 +225,101 @@ export default function Home() {
           return; // SUCCESS - Stop looping
         }
 
-        // 3. If not found yet, wait 500ms and try again
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // 3. If not found yet, wait with exponential backoff (longer delays for later retries)
+        const delay = baseDelay * (1 + i * 0.2); // 500ms, 600ms, 700ms, etc.
+        await new Promise(resolve => setTimeout(resolve, delay));
 
       } catch (error) {
-        console.error(`Retry ${i + 1}...`);
+        console.error(`Retry ${i + 1}/${maxRetries}...`, error);
+        // Continue retrying even on error
+        const delay = baseDelay * (1 + i * 0.2);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
     
-    console.error("Profile load timeout. The Database Trigger might have failed.");
+    // If profile still doesn't exist after all retries, try to create it
+    console.warn("Profile not found after retries. Attempting to create profile...");
+    try {
+      const { data: newProfile, error: createError } = await supabase
+        .from('profiles')
+        .insert({
+          id: currentUserId,
+          username: `Diver-${currentUserId.slice(0, 8)}`,
+          depth: 0,
+          gold: 0,
+          vigor: 0,
+          precision: 0,
+          aether: 0,
+          current_stamina: 100,
+          max_stamina: 100,
+          health: 100,
+          max_health: 100,
+          xp: 0,
+          level: 1,
+          stat_points: 0,
+          stats_bought: 0
+        })
+        .select()
+        .single();
+
+      if (newProfile && !createError) {
+        console.log("Profile created successfully");
+        setPlayer(newProfile as PlayerProfile);
+        setDerivedStats({
+          attack: newProfile.precision || 0,
+          defense: newProfile.vigor || 0,
+        });
+        return;
+      } else if (createError) {
+        // If insert fails (e.g., profile was created between retries), try one more fetch
+        const { data: profile, error: fetchError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', currentUserId)
+          .single();
+        
+        if (profile && !fetchError) {
+          setPlayer(profile as PlayerProfile);
+          setDerivedStats({
+            attack: (profile.precision || 0),
+            defense: (profile.vigor || 0),
+          });
+          return;
+        }
+        
+        console.error("Failed to create profile:", createError);
+      }
+    } catch (error) {
+      console.error("Error creating profile:", error);
+    }
+    
+    console.error("Profile load failed after all attempts. Please refresh the page.");
   }, []);
+
+  // Wrapper function to handle loading states
+  const loadPlayerAndStatsWithState = useCallback(async (currentUserId: string) => {
+    setIsLoading(true);
+    setLoadingError(null);
+    try {
+      await loadPlayerAndStats(currentUserId);
+    } catch (error) {
+      console.error('Error loading player:', error);
+      setLoadingError('Failed to load profile. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [loadPlayerAndStats]);
 
   useEffect(() => { 
     if (userId) {
-      loadPlayerAndStats(userId);
+      loadPlayerAndStatsWithState(userId);
     }
-  }, [loadPlayerAndStats, userId]);
+  }, [userId, loadPlayerAndStatsWithState]);
   useEffect(() => { 
     if (userId && !isInventoryOpen) {
-      loadPlayerAndStats(userId);
+      loadPlayerAndStatsWithState(userId);
     }
-  }, [isInventoryOpen, loadPlayerAndStats, userId]);
+  }, [isInventoryOpen, userId, loadPlayerAndStatsWithState]);
 
   // Load inventory when boss encounter starts
   useEffect(() => {
@@ -423,7 +544,32 @@ export default function Home() {
       </main>
     );
   }
-  if (!player) return <div className="h-screen flex items-center justify-center text-zinc-500">Loading Abyss...</div>;
+  
+  if (!player) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center text-zinc-500 bg-zinc-950">
+        <div className="text-center space-y-4">
+          <div className="text-xl font-bold">Loading Abyss...</div>
+          {isLoading && (
+            <div className="text-sm text-zinc-600 animate-pulse">
+              Connecting to the depths...
+            </div>
+          )}
+          {loadingError && (
+            <div className="space-y-2">
+              <div className="text-sm text-red-400">{loadingError}</div>
+              <button
+                onClick={() => loadPlayerAndStatsWithState(userId)}
+                className="px-4 py-2 rounded bg-zinc-800 text-zinc-100 font-bold hover:bg-zinc-700 transition-colors text-sm"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const biomeStyle = getBiomeStyle(player.depth || 0);
 
@@ -432,6 +578,9 @@ export default function Home() {
       <BiomeBackground depth={player.depth || 0} />
       
       <div className={`pointer-events-none absolute inset-0 z-50 ${damageFlash ? 'animate-damage' : ''}`} />
+
+      {/* Achievement Toast */}
+      <AchievementToast notification={achievementNotification} />
 
       {/* --- 2. UPDATED JSX RENDER --- */}
       <div className="pointer-events-none absolute inset-0 z-40 overflow-hidden flex justify-center items-center">

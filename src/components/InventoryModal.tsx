@@ -10,6 +10,26 @@ interface InventoryModalProps {
   onClose: () => void;
 }
 
+// Helper function to get rarity-based styles
+function getRarityStyle(rarity: string): { text: string; border: string } {
+  switch (rarity?.toLowerCase()) {
+    case 'legendary':
+      return { text: 'text-legendary', border: 'border-amber-500/50 bg-amber-950/10' };
+    case 'set':
+      return { text: 'text-emerald-400 font-bold', border: 'border-emerald-500/50 bg-emerald-950/10' };
+    case 'artifact':
+      return { text: 'text-purple-400 font-bold', border: 'border-purple-500/50 bg-purple-950/10' };
+    case 'rare':
+      return { text: 'text-blue-400 font-bold', border: 'border-blue-500/50 bg-blue-950/10' };
+    case 'uncommon':
+      return { text: 'text-green-400', border: 'border-green-500/30' };
+    case 'junk':
+      return { text: 'text-zinc-600', border: 'border-zinc-800 opacity-75' };
+    default:
+      return { text: 'text-zinc-200', border: 'border-zinc-700' };
+  }
+}
+
 export default function InventoryModal({ userId, isOpen, onClose }: InventoryModalProps) {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [inspectId, setInspectId] = useState<number | null>(null);
@@ -81,13 +101,14 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
             <div className="grid grid-cols-1 gap-2">
               {items.map((entry) => {
                 const stats = entry.stats_override || entry.item.stats || {};
+                const style = getRarityStyle(entry.item.rarity);
 
                 return (
                   <div
                     key={entry.id}
                     className={`flex items-center p-3 rounded border transition-colors relative ${entry.is_equipped
-                      ? 'bg-zinc-900 border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.1)]'
-                      : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
+                      ? `bg-zinc-900 border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.1)]`
+                      : `bg-zinc-900/50 ${style.border} hover:border-zinc-700`
                       }`}
                   >
                     {/* Icon Box - Clickable */}
@@ -118,9 +139,7 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
                       )}
 
                       <div className="flex items-center gap-2 mb-1 min-w-0">
-                        <span className={`font-bold truncate text-sm flex-1 min-w-0 ${entry.item.rarity === 'rare' ? 'text-blue-400' :
-                          entry.item.rarity === 'uncommon' ? 'text-green-400' : 'text-zinc-200'
-                          }`}>
+                        <span className={`font-bold truncate text-sm flex-1 min-w-0 ${style.text}`}>
                           {entry.name_override || entry.item.name}
                         </span>
                         {entry.is_equipped && (
