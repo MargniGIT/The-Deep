@@ -74,3 +74,19 @@ export interface StepResult {
   metadata?: Record<string, unknown>;
 }
 
+export interface PlayerProfile {
+  id: string;
+  username: string;
+  depth: number;
+  gold: number;
+  vigor: number;
+  precision: number;
+  aether: number;
+  current_stamina: number;
+  max_stamina: number;
+  xp: number;
+  // NEW FIELDS
+  level: number;
+  stat_points: number;
+}
+// ... keep the rest of the file the same

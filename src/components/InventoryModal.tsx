@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useInventory } from '@/hooks/useInventory';
-import { X, Shield, Sword, Box } from 'lucide-react'; // Make sure you have lucide-react installed
+import { X, Shield, Sword, Box, Heart } from 'lucide-react';
 
 // The ID we are pretending to be
 const HARDCODED_USER_ID = '123e4567-e89b-12d3-a456-426614174000';
@@ -15,14 +15,13 @@ export default function InventoryModal({ isOpen, onClose }: InventoryModalProps)
   const [items, setItems] = useState<any[]>([]);
   const { equipItem, unequipItem, loading: actionLoading } = useInventory();
 
-  // Fetch Inventory from DB
+  // Fetch Inventory
   const loadInventory = async () => {
-    console.log("Loading inventory...");
     const { data, error } = await supabase
       .from('inventory')
-      .select('*, item:items(*)') // Join with items table
+      .select('*, item:items(*)') 
       .eq('user_id', HARDCODED_USER_ID)
-      .order('is_equipped', { ascending: false }); // Show equipped first
+      .order('is_equipped', { ascending: false });
 
     if (error) {
       console.error('Error loading inventory:', error);
@@ -31,108 +30,138 @@ export default function InventoryModal({ isOpen, onClose }: InventoryModalProps)
     }
   };
 
-  // Reload when opening
   useEffect(() => {
-    if (isOpen) {
-      loadInventory();
-    }
+    if (isOpen) loadInventory();
   }, [isOpen]);
 
-  // Handle the Button Click
   const handleItemAction = async (inventoryItem: any) => {
-    // 1. UNEQUIP LOGIC
+    // Unequip
     if (inventoryItem.is_equipped) {
       const success = await unequipItem(inventoryItem.id);
-      if (success) await loadInventory(); // Refresh UI
+      if (success) await loadInventory(); 
       return;
     }
 
-    // 2. EQUIP LOGIC
+    // Equip
     const targetSlot = inventoryItem.item.valid_slot;
-    
     if (targetSlot) {
       const success = await equipItem(inventoryItem.id, targetSlot);
-      if (success) await loadInventory(); // Refresh UI
+      if (success) await loadInventory(); 
     } else {
-      alert("This item cannot be equipped!");
+      alert("You can't equip this!");
     }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-zinc-900 border border-zinc-700 w-full max-w-lg rounded-lg shadow-2xl flex flex-col max-h-[80vh]">
         
         {/* Header */}
-        <div className="p-4 border-b border-zinc-700 flex justify-between items-center">
+        <div className="p-4 border-b border-zinc-700 flex justify-between items-center bg-zinc-900 rounded-t-lg">
           <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
-            <Box size={20} /> Backpack
+            <Box size={20} className="text-blue-400" /> Backpack
           </h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+          <button onClick={onClose} className="text-zinc-400 hover:text-white transition-colors">
             <X size={24} />
           </button>
         </div>
 
         {/* Scrollable Grid */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-4 bg-zinc-950/50">
           {items.length === 0 ? (
-            <div className="text-zinc-500 text-center py-10">Your bag is empty.</div>
+            <div className="text-zinc-500 text-center py-10 flex flex-col items-center gap-2">
+              <Box size={40} className="opacity-20" />
+              <span>Your bag is empty.</span>
+            </div>
           ) : (
             <div className="grid grid-cols-1 gap-2">
-              {items.map((entry) => (
-                <div 
-                  key={entry.id} 
-                  className={`flex items-center p-3 rounded border ${
-                    entry.is_equipped 
-                      ? 'bg-zinc-800 border-green-500/50' 
-                      : 'bg-zinc-950 border-zinc-800'
-                  }`}
-                >
-                  {/* Icon Placeholder */}
-                  <div className={`w-10 h-10 rounded flex items-center justify-center mr-3 ${
-                    entry.is_equipped ? 'bg-green-900/20 text-green-400' : 'bg-zinc-800 text-zinc-500'
-                  }`}>
-                    {entry.item.valid_slot === 'main_hand' ? <Sword size={18}/> : <Shield size={18}/>}
-                  </div>
-
-                  {/* Text Info */}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className={`font-medium ${
-                        entry.item.rarity === 'rare' ? 'text-blue-400' : 'text-zinc-200'
-                      }`}>
-                        {entry.item.name}
-                      </span>
-                      {entry.is_equipped && (
-                        <span className="text-xs bg-green-900 text-green-400 px-1.5 py-0.5 rounded">EQUIPPED</span>
-                      )}
-                    </div>
-                    <div className="text-xs text-zinc-500 capitalize">
-                      {entry.item.rarity} {entry.item.type}
-                    </div>
-                  </div>
-
-                  {/* Action Button */}
-                  <button
-                    disabled={actionLoading}
-                    onClick={() => handleItemAction(entry)}
-                    className={`text-xs px-3 py-1.5 rounded font-bold transition-colors ${
-                      entry.is_equipped
-                        ? 'bg-zinc-800 text-zinc-400 hover:text-red-400'
-                        : entry.item.valid_slot
-                          ? 'bg-blue-600 text-white hover:bg-blue-500'
-                          : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+              {items.map((entry) => {
+                const stats = entry.item.stats || {};
+                
+                return (
+                  <div 
+                    key={entry.id} 
+                    className={`flex items-center p-3 rounded border transition-colors ${
+                      entry.is_equipped 
+                        ? 'bg-zinc-900 border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.1)]' 
+                        : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
                     }`}
                   >
-                    {entry.is_equipped ? 'UNEQUIP' : entry.item.valid_slot ? 'EQUIP' : '---'}
-                  </button>
-                </div>
-              ))}
+                    {/* Icon Box */}
+                    <div className={`w-12 h-12 rounded flex items-center justify-center mr-4 border shrink-0 ${
+                      entry.is_equipped 
+                        ? 'bg-green-950/30 border-green-500/30 text-green-400' 
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-600'
+                    }`}>
+                      {entry.item.valid_slot === 'main_hand' ? <Sword size={20}/> : 
+                       entry.item.valid_slot === 'chest' ? <Shield size={20}/> : 
+                       <Box size={20}/>}
+                    </div>
+
+                    {/* Item Details */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`font-bold truncate text-sm ${
+                          entry.item.rarity === 'rare' ? 'text-blue-400' : 
+                          entry.item.rarity === 'uncommon' ? 'text-green-400' : 'text-zinc-200'
+                        }`}>
+                          {entry.item.name}
+                        </span>
+                        {entry.is_equipped && (
+                          <span className="text-[10px] bg-green-500/10 text-green-400 px-1.5 py-0.5 rounded border border-green-500/20 font-bold tracking-wider">
+                            EQUIPPED
+                          </span>
+                        )}
+                      </div>
+                      
+                      {/* STATS DISPLAY ROW */}
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {/* Damage Badge */}
+                        {stats.damage && (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-red-400 bg-red-950/30 px-1.5 py-0.5 rounded border border-red-900/30">
+                            <Sword size={10} /> +{stats.damage} ATK
+                          </span>
+                        )}
+                        {/* Defense Badge */}
+                        {stats.defense && (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-blue-400 bg-blue-950/30 px-1.5 py-0.5 rounded border border-blue-900/30">
+                            <Shield size={10} /> +{stats.defense} DEF
+                          </span>
+                        )}
+                        {/* Generic Badge for other stats (like Value or Regen) */}
+                        {Object.entries(stats).map(([key, value]) => {
+                          if (key === 'damage' || key === 'defense') return null; // Skip ones we already showed
+                          return (
+                            <span key={key} className="flex items-center gap-1 text-[10px] text-zinc-400 bg-zinc-800/50 px-1.5 py-0.5 rounded">
+                              <span className="capitalize">{key}:</span> {String(value)}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Button */}
+                    <button
+                      disabled={actionLoading}
+                      onClick={() => handleItemAction(entry)}
+                      className={`ml-3 text-xs px-3 py-2 rounded font-bold transition-all min-w-[70px] ${
+                        entry.is_equipped
+                          ? 'bg-zinc-800 text-zinc-400 hover:text-red-400 hover:bg-zinc-900 border border-zinc-700'
+                          : entry.item.valid_slot
+                            ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20'
+                            : 'bg-transparent text-zinc-600 cursor-not-allowed italic'
+                      }`}
+                    >
+                      {entry.is_equipped ? 'UNEQUIP' : entry.item.valid_slot ? 'EQUIP' : '-'}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
-
       </div>
     </div>
   );

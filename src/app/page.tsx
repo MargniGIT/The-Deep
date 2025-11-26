@@ -21,10 +21,10 @@ export default function Home() {
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
 
   // Game Loop Hook
-  const { handleDescend, logs, loading: loopLoading } = useGameLoop(
+  const { handleDescend, handleStatUpgrade, logs, loading: loopLoading } = useGameLoop(
     player, 
-    setPlayer, 
-    (newLogs) => {} // We handle logs via state in the hook usually, or pass a setter
+    (p) => setPlayer(p), 
+    () => {} 
   );
 
   // 1. Load Player & Calculate Gear Stats
@@ -88,7 +88,7 @@ export default function Home() {
       
       {/* 1. TOP BAR: Status & Combat Stats */}
       <header className="p-4 border-b border-zinc-800 bg-zinc-900/50">
-        <StatsDisplay profile={player} />
+        <StatsDisplay profile={player} onUpgrade={handleStatUpgrade} />
         
         {/* Combat Stats Row */}
         <div className="flex gap-4 mt-3 text-sm">
