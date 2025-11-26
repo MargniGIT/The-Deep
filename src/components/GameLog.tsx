@@ -27,7 +27,67 @@ export default function GameLog({ logs = [] }: GameLogProps) {
               !entry.includes('Defeated') &&
               !entry.includes('DIED') &&
               !entry.includes('damage') &&
-              !entry.includes('LEVEL UP');
+              !entry.includes('LEVEL UP') &&
+              !entry.includes('[LEGENDARY]') &&
+              !entry.includes('[SET]') &&
+              !entry.includes('[RARE]') &&
+              !entry.includes('[UNCOMMON]') &&
+              !entry.includes('[JUNK]');
+
+            // Parse rarity tags and apply styling
+            const parseRarityTags = (text: string) => {
+              const parts: Array<{ text: string; className?: string }> = [];
+              let remaining = text;
+              let lastIndex = 0;
+
+              // Match rarity tags
+              const tagPattern = /\[(LEGENDARY|SET|RARE|UNCOMMON|JUNK)\]/g;
+              let match;
+
+              while ((match = tagPattern.exec(text)) !== null) {
+                // Add text before the tag
+                if (match.index > lastIndex) {
+                  parts.push({ text: text.substring(lastIndex, match.index) });
+                }
+
+                // Add the tag with appropriate styling
+                const tag = match[1];
+                let className = '';
+                switch (tag) {
+                  case 'LEGENDARY':
+                    className = 'text-legendary';
+                    break;
+                  case 'SET':
+                    className = 'text-set';
+                    break;
+                  case 'RARE':
+                    className = 'text-blue-400 font-bold';
+                    break;
+                  case 'UNCOMMON':
+                    className = 'text-green-300';
+                    break;
+                  case 'JUNK':
+                    className = 'text-zinc-600';
+                    break;
+                }
+                parts.push({ text: match[0], className });
+                lastIndex = match.index + match[0].length;
+              }
+
+              // Add remaining text
+              if (lastIndex < text.length) {
+                parts.push({ text: text.substring(lastIndex) });
+              }
+
+              // If no tags found, return original text
+              if (parts.length === 0) {
+                return [{ text }];
+              }
+
+              return parts;
+            };
+
+            const parsedParts = parseRarityTags(entry);
 
             return (
               <div
@@ -37,8 +97,18 @@ export default function GameLog({ logs = [] }: GameLogProps) {
                   : 'border-zinc-800 duration-300'
                   }`}
               >
-                {/* Highlight special words for flavor */}
-                {entry.includes('You found a') && !entry.includes('vein') ? (
+                {/* Render parsed parts with rarity styling */}
+                {parsedParts.length > 1 || parsedParts[0]?.className ? (
+                  <span>
+                    {parsedParts.map((part, idx) => (
+                      part.className ? (
+                        <span key={idx} className={part.className}>{part.text}</span>
+                      ) : (
+                        <span key={idx}>{part.text}</span>
+                      )
+                    ))}
+                  </span>
+                ) : entry.includes('You found a') && !entry.includes('vein') ? (
                   <span className="text-purple-400 font-semibold">{entry}</span>
                 ) : entry.includes('vein') ? (
                   <span className="text-yellow-400">{entry}</span>

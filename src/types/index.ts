@@ -104,6 +104,7 @@ export interface BaseItem {
   scrap_value: number;
   value: number;
   icon_slug: string | null;
+  set_name: string | null;
 }
 
 export interface InventoryItem {

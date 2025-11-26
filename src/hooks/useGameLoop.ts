@@ -6,6 +6,15 @@ const MAX_LEVEL = 50;
 // Helper function to calculate training cost
 const getTrainingCost = (bought: number) => 100 * (bought + 1);
 
+// --- SET BONUSES ---
+const SET_BONUSES: Record<string, Record<number, Record<string, number>>> = {
+  "Warden's Steel": {
+    2: { vigor: 10 },
+    3: { defense: 10 },
+    4: { aether: 20 }
+  }
+};
+
 // --- HORROR TEXT POOLS ---
 const SHALLOW_LOGS = [
   "Water drips from the ceiling... plip... plip...",
@@ -52,6 +61,30 @@ const SUFFIXES = [
 function getAtmosphereLog(depth: number) {
   const pool = depth < 1000 ? SHALLOW_LOGS : DEEP_LOGS;
   return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// Helper function to get rarity tag for log messages
+function getRarityTag(item: any): string {
+  if (!item) return '[JUNK]';
+  
+  // Check if item is part of a set
+  if (item.set_name) {
+    return '[SET]';
+  }
+  
+  // Check rarity
+  const rarity = item.rarity?.toLowerCase() || 'common';
+  switch (rarity) {
+    case 'legendary':
+      return '[LEGENDARY]';
+    case 'epic':
+    case 'rare':
+      return '[RARE]';
+    case 'uncommon':
+      return '[UNCOMMON]';
+    default:
+      return '[JUNK]';
+  }
 }
 
 export function useGameLoop(
@@ -331,7 +364,7 @@ export function useGameLoop(
         onEffect('gold', goldFound);
       }
 
-      // 3. LOOT (71-85%) - The "Treasure"
+      // 3. SCAVENGE (71-85%) - Junk and Materials
       else if (roll <= 85) {
         // Check inventory limit before adding items
         const { count: currentInventoryCount } = await supabase
@@ -343,11 +376,58 @@ export function useGameLoop(
         if ((currentInventoryCount || 0) >= INVENTORY_LIMIT) {
           logMessage = "Your inventory is full! You can't carry any more items.";
         } else {
+          // Fetch items where type = 'junk' or type = 'material'
           const { data: validItems } = await supabase
             .from('items')
             .select('*')
             .lte('min_depth', newDepth)
             .gte('max_depth', newDepth)
+            .or('type.eq.junk,type.eq.material')
+            .limit(10);
+
+          const randomItem = validItems && validItems.length > 0
+            ? validItems[Math.floor(Math.random() * validItems.length)]
+            : null;
+
+          if (randomItem) {
+            const { error } = await supabase.from('inventory').insert({
+              user_id: userId,
+              item_id: randomItem.id,
+              is_equipped: false,
+              slot: randomItem.valid_slot || null
+            });
+            if (!error) {
+              const rarityTag = getRarityTag(randomItem);
+              logMessage = `${rarityTag} You scavenged some debris. Found: ${randomItem.name}`;
+              onEffect('item');
+            } else {
+              logMessage = "You saw something, but couldn't reach it.";
+            }
+          } else {
+            logMessage = "You scavenged some debris.";
+          }
+        }
+      }
+
+      // 4. TREASURE (86-90%) - Weapons, Armor, Accessories
+      else if (roll <= 90) {
+        // Check inventory limit before adding items
+        const { count: currentInventoryCount } = await supabase
+          .from('inventory')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', userId);
+
+        const INVENTORY_LIMIT = 30;
+        if ((currentInventoryCount || 0) >= INVENTORY_LIMIT) {
+          logMessage = "Your inventory is full! You can't carry any more items.";
+        } else {
+          // Fetch items where type = 'weapon' | 'armor' | 'accessory'
+          const { data: validItems } = await supabase
+            .from('items')
+            .select('*')
+            .lte('min_depth', newDepth)
+            .gte('max_depth', newDepth)
+            .or('type.eq.weapon,type.eq.armor,type.eq.accessory')
             .limit(10);
 
           const randomItem = validItems && validItems.length > 0
@@ -393,18 +473,19 @@ export function useGameLoop(
               stats_override: shouldHaveAffixes ? combinedStats : null
             });
             if (!error) {
-              logMessage = `You found a ${fullName}!`;
+              const rarityTag = getRarityTag(randomItem);
+              logMessage = `${rarityTag} A treasure reveals itself! Found: ${fullName}`;
               onEffect('item');
             } else {
               logMessage = `You saw a ${randomItem.name}, but couldn't reach it.`;
             }
           } else {
-            logMessage = "You found nothing but dust.";
+            logMessage = "A treasure reveals itself!";
           }
         }
       }
 
-      // 4. COMBAT (86-100%) - Increased Danger (15% chance now)
+      // 5. COMBAT (91-100%) - Increased Danger (10% chance now)
       else {
         const { data: monsters } = await supabase.from('monsters').select('*')
           .lte('min_depth', newDepth)
@@ -426,10 +507,46 @@ export function useGameLoop(
             bonusDef += stats.defense || 0; 
           });
 
-          // Calculate player total stats safely
+          // --- SET BONUSES ---
+          // Count items by set_name
+          const setCounts: Record<string, number> = {};
+          gear?.forEach((g: any) => {
+            const setName = g.item?.set_name;
+            if (setName) {
+              setCounts[setName] = (setCounts[setName] || 0) + 1;
+            }
+          });
+
+          // Apply set bonuses
+          let setBonusVigor = 0;
+          let setBonusDef = 0;
+          let setBonusAether = 0;
+          Object.entries(setCounts).forEach(([setName, count]) => {
+            const setBonus = SET_BONUSES[setName];
+            if (setBonus) {
+              // Find the highest bonus tier that applies (2, 3, or 4 pieces)
+              const applicableTiers = Object.keys(setBonus)
+                .map(Number)
+                .filter(tier => count >= tier)
+                .sort((a, b) => b - a); // Sort descending to get highest tier
+              
+              if (applicableTiers.length > 0) {
+                const highestTier = applicableTiers[0];
+                const bonuses = setBonus[highestTier];
+                if (bonuses.vigor) setBonusVigor += bonuses.vigor;
+                if (bonuses.defense) setBonusDef += bonuses.defense;
+                if (bonuses.aether) setBonusAether += bonuses.aether;
+              }
+            }
+          });
+
+          // Calculate player total stats safely (including set bonuses)
           const playerTotalAtk = (player.precision || 0) + bonusAtk;
           // Defense should only come from equipment, not from vigor (health)
-          const playerTotalDef = bonusDef;
+          const playerTotalDef = bonusDef + setBonusDef;
+          // Apply vigor bonus to max_stamina (for health calculations)
+          // Note: setBonusAether is applied but doesn't affect combat directly (only gold multiplier)
+          const effectiveMaxStamina = (player.max_stamina || 0) + setBonusVigor;
 
           // SAFE COMBAT MATH: Prevent Infinity and division by zero
           // Crit multiplier (10% chance for 2x damage)
@@ -521,18 +638,36 @@ export function useGameLoop(
         const safeDepth = currentDepth ?? 0;
         const safeGold = currentGold ?? 0;
 
-        const graveData = {
-          user_id: userId,
-          depth: safeDepth,
-          gold_lost: safeGold,
-          items_json: safeItemsJson
-        };
+        // Verify profile exists before creating grave (database trigger should have created it)
+        // Just check - don't try to create (that would cause 409 Conflict)
+        const { data: existingProfile, error: profileCheckError } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('id', userId)
+          .maybeSingle();
 
-        // Validate data before insert
-        if (!userId || safeDepth === undefined || safeGold === undefined) {
-          console.error('Invalid grave data:', { userId, depth: safeDepth, gold: safeGold, itemsCount: safeItemsJson.length });
-          addLog('Failed to create grave: Invalid data.');
+        if (profileCheckError && (profileCheckError as any).code !== 'PGRST116') {
+          console.error('Error checking profile:', profileCheckError);
+          addLog('Failed to verify profile. Grave creation skipped.');
+        } else if (!existingProfile) {
+          // Profile doesn't exist - this shouldn't happen if DB trigger is working
+          console.error('Profile does not exist for user. Database trigger may have failed.');
+          addLog('Profile not found. Grave creation skipped. Please refresh the page.');
+          // Skip grave creation if profile doesn't exist
         } else {
+          // Profile exists - proceed with grave creation
+          const graveData = {
+            user_id: userId,
+            depth: safeDepth,
+            gold_lost: safeGold,
+            items_json: safeItemsJson
+          };
+
+          // Validate data before insert
+          if (!userId || safeDepth === undefined || safeGold === undefined) {
+            console.error('Invalid grave data:', { userId, depth: safeDepth, gold: safeGold, itemsCount: safeItemsJson.length });
+            addLog('Failed to create grave: Invalid data.');
+          } else {
           const { error: graveError, data: graveDataResult } = await supabase
             .from('graves')
             .insert(graveData)
@@ -562,11 +697,35 @@ export function useGameLoop(
             if (errorCode === '42501') {
               addLog('Failed to create grave: Database security policy error. Please contact admin.');
               console.error('RLS Policy Error: The graves table needs Row-Level Security policies. Run migration_fix_graves.sql in Supabase SQL Editor.');
+            } else if (errorCode === '23503') {
+              // Foreign key constraint violation
+              addLog('Failed to create grave: User profile not found. Please ensure you are logged in.');
+              console.error('Foreign Key Error: The user_id does not exist in the profiles table. This may indicate the profile was not created properly.');
+              console.error('Run migration_fix_graves.sql to remove the foreign key constraint if using anonymous users.');
             } else {
               addLog(`Failed to create grave: ${errorMessage}. Your items may be lost.`);
             }
-          } else {
+          } else if (graveDataResult && graveDataResult.length > 0) {
             console.log('Grave created successfully:', graveDataResult);
+            // Update grave depth state immediately after successful creation
+            setGraveDepth(safeDepth);
+            // Verify the grave exists by fetching it
+            const { data: verifyGrave, error: verifyError } = await supabase
+              .from('graves')
+              .select('depth')
+              .eq('user_id', userId)
+              .maybeSingle();
+            if (verifyError) {
+              console.error('Warning: Grave created but verification failed:', verifyError);
+            } else if (!verifyGrave) {
+              console.error('Warning: Grave created but not found on verification');
+            } else {
+              console.log('Grave verified at depth:', verifyGrave.depth);
+            }
+          } else {
+            console.error('Grave creation returned no data:', graveDataResult);
+            addLog('Failed to create grave: No data returned. Your items may be lost.');
+          }
           }
         }
 
@@ -611,8 +770,8 @@ export function useGameLoop(
         // Log death message
         logMessage = `YOU DIED. Your gear lies at ${currentDepth}m.`;
         
-        // Update grave depth state
-        setGraveDepth(currentDepth);
+        // Note: grave depth state is set immediately after successful grave creation above
+        // Only set canRetrieve to false here (will be set to true when player reaches grave depth)
         setCanRetrieve(false);
       }
 
@@ -762,9 +921,43 @@ export function useGameLoop(
             bonusDef += stats.defense || 0; 
           });
 
+          // --- SET BONUSES ---
+          // Count items by set_name
+          const setCounts: Record<string, number> = {};
+          gear?.forEach((g: any) => {
+            const setName = g.item?.set_name;
+            if (setName) {
+              setCounts[setName] = (setCounts[setName] || 0) + 1;
+            }
+          });
+
+          // Apply set bonuses
+          let setBonusVigor = 0;
+          let setBonusDef = 0;
+          let setBonusAether = 0;
+          Object.entries(setCounts).forEach(([setName, count]) => {
+            const setBonus = SET_BONUSES[setName];
+            if (setBonus) {
+              // Find the highest bonus tier that applies (2, 3, or 4 pieces)
+              const applicableTiers = Object.keys(setBonus)
+                .map(Number)
+                .filter(tier => count >= tier)
+                .sort((a, b) => b - a); // Sort descending to get highest tier
+              
+              if (applicableTiers.length > 0) {
+                const highestTier = applicableTiers[0];
+                const bonuses = setBonus[highestTier];
+                if (bonuses.vigor) setBonusVigor += bonuses.vigor;
+                if (bonuses.defense) setBonusDef += bonuses.defense;
+                if (bonuses.aether) setBonusAether += bonuses.aether;
+              }
+            }
+          });
+
           const playerTotalAtk = (player.precision || 0) + bonusAtk;
           // Defense should only come from equipment, not from vigor (health)
-          const playerTotalDef = bonusDef;
+          const playerTotalDef = bonusDef + setBonusDef;
+          // Note: setBonusVigor and setBonusAether are calculated but not directly used in explore combat
 
           const critRoll = Math.random();
           const critMultiplier = critRoll < 0.1 ? 2 : 1;

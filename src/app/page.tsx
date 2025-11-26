@@ -140,85 +140,63 @@ export default function Home() {
     setUserId(newId);
   }, []);
 
-  const loadPlayerAndStats = useCallback(async () => {
-    // If userId hasn't been loaded yet (or no user is logged in), just skip.
-    if (!userId) {
-      return;
-    }
+  const loadPlayerAndStats = useCallback(async (currentUserId: string) => {
+    // Try 5 times to find the profile (Waiting for DB Trigger)
+    for (let i = 0; i < 5; i++) {
+      try {
+        // 1. Try to fetch
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', currentUserId)
+          .single();
 
-    try {
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
+        // 2. If we found it, Great! Load stats and exit.
+        if (profile && !profileError) {
+          
+          // Fetch Gear
+          const { data: gear } = await supabase
+            .from('inventory')
+            .select('*, item:items(*)')
+            .eq('user_id', currentUserId)
+            .eq('is_equipped', true);
 
-      let finalProfile = profile;
+          // Calc Stats
+          let bonusAttack = 0, bonusDefense = 0;
+          gear?.forEach((entry: any) => {
+            bonusAttack += (entry.item.stats?.damage || 0);
+            bonusDefense += (entry.item.stats?.defense || 0);
+          });
 
-      // If no profile exists yet for this user, create one with sane defaults
-      if (error) {
-        // PGRST116: Results contain 0 rows (no profile yet)
-        if ((error as any).code === 'PGRST116') {
-          const { data: newProfile, error: insertError } = await supabase
-            .from('profiles')
-            .insert({
-              id: userId,
-              username: `Diver-${userId.slice(0, 8)}`,
-              depth: 0,
-              gold: 0,
-              bank_gold: 0,
-              vigor: 5,
-              precision: 5,
-              aether: 5,
-              current_stamina: 20,
-              max_stamina: 20,
-              xp: 0,
-              level: 1,
-              stat_points: 0,
-              health: 100,
-              max_health: 100,
-            })
-            .select('*')
-            .single();
-
-          if (insertError || !newProfile) {
-            // In dev, avoid triggering Next.js error overlay for recoverable issues.
-            console.warn('Failed to create profile for user', insertError || newProfile);
-            return;
-          }
-
-          finalProfile = newProfile as PlayerProfile;
-        } else {
-          console.error('Error loading profile:', error);
-          return;
+          setPlayer(profile as PlayerProfile);
+          setDerivedStats({
+            attack: (profile.precision || 0) + bonusAttack,
+            defense: (profile.vigor || 0) + bonusDefense,
+          });
+          return; // SUCCESS - Stop looping
         }
+
+        // 3. If not found yet, wait 500ms and try again
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+      } catch (error) {
+        console.error(`Retry ${i + 1}...`);
       }
-
-      const { data: gear } = await supabase
-        .from('inventory')
-        .select('*, item:items(*)')
-        .eq('user_id', userId)
-        .eq('is_equipped', true);
-
-      let bonusAttack = 0,
-        bonusDefense = 0;
-      gear?.forEach((entry: any) => {
-        bonusAttack += (entry.item.stats?.damage || 0);
-        bonusDefense += (entry.item.stats?.defense || 0);
-      });
-
-      setPlayer(finalProfile as PlayerProfile);
-      setDerivedStats({
-        attack: ((finalProfile as PlayerProfile).precision || 0) + bonusAttack,
-        defense: ((finalProfile as PlayerProfile).vigor || 0) + bonusDefense,
-      });
-    } catch (error) {
-      console.error(error);
     }
-  }, [userId]);
+    
+    console.error("Profile load timeout. The Database Trigger might have failed.");
+  }, []);
 
-  useEffect(() => { loadPlayerAndStats(); }, [loadPlayerAndStats]);
-  useEffect(() => { if (!isInventoryOpen) loadPlayerAndStats(); }, [isInventoryOpen, loadPlayerAndStats]);
+  useEffect(() => { 
+    if (userId) {
+      loadPlayerAndStats(userId);
+    }
+  }, [loadPlayerAndStats, userId]);
+  useEffect(() => { 
+    if (userId && !isInventoryOpen) {
+      loadPlayerAndStats(userId);
+    }
+  }, [isInventoryOpen, loadPlayerAndStats, userId]);
 
   // Handle grave retrieval
   const handleRetrieveGrave = useCallback(async () => {
@@ -249,13 +227,28 @@ export default function Home() {
 
       if (graveError) {
         console.error('Failed to fetch grave:', graveError);
+        console.error('Grave error details:', {
+          message: graveError.message,
+          code: graveError.code,
+          details: graveError.details,
+          hint: graveError.hint
+        });
         addLog('Failed to retrieve your grave. It may have been lost to the depths.');
         return;
       }
 
       if (!grave) {
-        console.error('No grave found for user');
-        addLog('No grave found at this depth.');
+        console.error('No grave found for user:', userId);
+        // Double-check by querying all graves for this user (for debugging)
+        const { data: allGraves, error: debugError } = await supabase
+          .from('graves')
+          .select('*')
+          .eq('user_id', userId);
+        console.log('Debug: All graves for user:', allGraves);
+        if (debugError) {
+          console.error('Debug query error:', debugError);
+        }
+        addLog('No grave found. If you just died, the grave may not have been created. Check console for errors.');
         return;
       }
 
@@ -347,9 +340,11 @@ export default function Home() {
       setGraveDepth(null); // Clear grave depth after retrieval
       
       // Reload player stats (don't await to avoid blocking)
-      loadPlayerAndStats().catch(err => {
-        console.error('Error reloading stats:', err);
-      });
+      if (userId) {
+        loadPlayerAndStats(userId).catch(err => {
+          console.error('Error reloading stats:', err);
+        });
+      }
     } catch (error) {
       console.error('Error retrieving grave:', error);
       addLog('Something went wrong while retrieving your grave.');
