@@ -97,6 +97,7 @@ export interface InventoryItem {
   item_id: number;
   is_equipped: boolean;
   slot: string | null;
+  quantity?: number; // Quantity for stackable items
 
   // The joined item data (the dictionary definition)
   item: BaseItem;

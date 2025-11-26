@@ -31,6 +31,57 @@ function getRarityStyle(rarity: string): { text: string; border: string } {
   }
 }
 
+// Helper function to get rarity sort order (lower = higher priority)
+function getRaritySortOrder(rarity: string): number {
+  switch (rarity?.toLowerCase()) {
+    case 'legendary': return 1;
+    case 'artifact': return 2;
+    case 'set': return 3;
+    case 'epic': return 4;
+    case 'rare': return 5;
+    case 'uncommon': return 6;
+    case 'common': return 7;
+    case 'junk': return 8;
+    default: return 9;
+  }
+}
+
+// Helper function to check if item is junk
+function isJunk(item: InventoryItem): boolean {
+  return item.item.rarity?.toLowerCase() === 'junk' || 
+         item.item.type?.toLowerCase() === 'junk';
+}
+
+// Sort inventory items: Equipped first, then items by rarity, then junk last
+function sortInventoryItems(items: InventoryItem[]): InventoryItem[] {
+  return [...items].sort((a, b) => {
+    // 1. Equipped items always come first
+    if (a.is_equipped && !b.is_equipped) return -1;
+    if (!a.is_equipped && b.is_equipped) return 1;
+    
+    // 2. Within equipped/unequipped groups, separate junk from items
+    const aIsJunk = isJunk(a);
+    const bIsJunk = isJunk(b);
+    
+    if (!aIsJunk && bIsJunk) return -1; // Items before junk
+    if (aIsJunk && !bIsJunk) return 1;   // Junk after items
+    
+    // 3. Within same category (both junk or both items), sort by rarity
+    const aRarityOrder = getRaritySortOrder(a.item.rarity);
+    const bRarityOrder = getRaritySortOrder(b.item.rarity);
+    
+    if (aRarityOrder !== bRarityOrder) {
+      return aRarityOrder - bRarityOrder;
+    }
+    
+    // 4. Same rarity, sort alphabetically by name
+    const aName = (a.name_override || a.item.name || '').toLowerCase();
+    const bName = (b.name_override || b.item.name || '').toLowerCase();
+    
+    return aName.localeCompare(bName);
+  });
+}
+
 export default function InventoryModal({ userId, isOpen, onClose }: InventoryModalProps) {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [inspectId, setInspectId] = useState<number | null>(null);
@@ -43,13 +94,14 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
     const { data, error } = await supabase
       .from('inventory')
       .select('*, item:items(*)')
-      .eq('user_id', userId)
-      .order('is_equipped', { ascending: false });
+      .eq('user_id', userId);
 
     if (error) {
       console.error('Error loading inventory:', error);
     } else {
-      setItems(data || []);
+      // Sort items: equipped first, then items by rarity, then junk last
+      const sortedItems = sortInventoryItems((data || []) as InventoryItem[]);
+      setItems(sortedItems);
     }
   }, [userId]);
 
@@ -115,12 +167,18 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
                     {/* Icon Box - Clickable */}
                     <div 
                       onClick={() => setInspectId(inspectId === entry.id ? null : entry.id)}
-                      className={`w-12 h-12 rounded flex items-center justify-center mr-4 border shrink-0 cursor-pointer transition-all hover:scale-105 ${entry.is_equipped
+                      className={`w-12 h-12 rounded flex items-center justify-center mr-4 border shrink-0 cursor-pointer transition-all hover:scale-105 relative ${entry.is_equipped
                         ? 'bg-green-950/30 border-green-500/30 text-green-400'
                         : 'bg-zinc-950 border-zinc-800 text-zinc-600'
                         }`}
                     >
                       <ItemIcon slug={entry.item.icon_slug} className="w-8 h-8" />
+                      {/* Quantity Badge */}
+                      {(entry.quantity || 0) > 1 && (
+                        <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border border-blue-400 min-w-[18px] text-center">
+                          x{entry.quantity}
+                        </span>
+                      )}
                     </div>
 
                     {/* Item Details */}
@@ -182,7 +240,10 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
                       <button
                         disabled={actionLoading}
                         onClick={async () => {
-                          if (confirm(`Scrap ${entry.item.name} for parts?`)) {
+                          const quantity = entry.quantity || 1;
+                          const itemName = entry.name_override || entry.item.name;
+                          const stackText = quantity > 1 ? ` (x${quantity})` : '';
+                          if (confirm(`Scrap ${itemName}${stackText} for parts?`)) {
                             const success = await scrapItem(entry.id);
                             if (success) await loadInventory();
                           }

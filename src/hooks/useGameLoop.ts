@@ -517,13 +517,17 @@ export function useGameLoop(
             : null;
 
           if (randomItem) {
-            const { error } = await supabase.from('inventory').insert({
-              user_id: userId,
-              item_id: randomItem.id,
-              is_equipped: false,
-              slot: randomItem.valid_slot || null
-            });
-            if (!error) {
+            // Use RPC function for stacking support
+            const { data: rpcResult, error: rpcError } = await supabase
+              .rpc('add_item_to_inventory', {
+                p_user_id: userId,
+                p_item_id: randomItem.id,
+                p_quantity: 1
+              });
+            
+            if (!rpcError && rpcResult && rpcResult.success) {
+              // If item has affixes or special properties, we need to update the inserted row
+              // For now, RPC handles basic stacking. Affixed items will be separate entries.
               const rarityTag = getRarityTag(randomItem);
               logMessage = `${rarityTag} You scavenged some debris. Found: ${randomItem.name}`;
               onEffect('item');
@@ -591,15 +595,37 @@ export function useGameLoop(
               // Construct Name
               fullName = `${prefix.name} ${randomItem.name} ${suffix.name}`;
             }
-            const { error } = await supabase.from('inventory').insert({
-              user_id: userId,
-              item_id: randomItem.id,
-              is_equipped: false,
-              slot: randomItem.valid_slot || null,
-              name_override: shouldHaveAffixes ? fullName : null,
-              stats_override: shouldHaveAffixes ? combinedStats : null
-            });
-            if (!error) {
+            // For items with affixes, we need to insert directly since they have unique overrides
+            // But first check if item is stackable - if not, we can use RPC
+            // For now, insert directly to preserve affix data (affixed items shouldn't stack anyway)
+            const { data: rpcResult, error: rpcError } = await supabase
+              .rpc('add_item_to_inventory', {
+                p_user_id: userId,
+                p_item_id: randomItem.id,
+                p_quantity: 1
+              });
+            
+            if (!rpcError && rpcResult && rpcResult.success) {
+              // If item has affixes, update the inserted row with override data
+              if (shouldHaveAffixes && rpcResult.inventory_id) {
+                await supabase
+                  .from('inventory')
+                  .update({
+                    name_override: fullName,
+                    stats_override: combinedStats,
+                    slot: randomItem.valid_slot || null
+                  })
+                  .eq('id', rpcResult.inventory_id);
+              } else if (!shouldHaveAffixes) {
+                // Update slot for non-affixed items
+                await supabase
+                  .from('inventory')
+                  .update({
+                    slot: randomItem.valid_slot || null
+                  })
+                  .eq('id', rpcResult.inventory_id);
+              }
+              
               const rarityTag = getRarityTag(randomItem);
               logMessage = `${rarityTag} A treasure reveals itself! Found: ${fullName}`;
               onEffect('item');
@@ -1003,13 +1029,21 @@ export function useGameLoop(
 
           if (materialItems && materialItems.length > 0) {
             const randomMaterial = materialItems[Math.floor(Math.random() * materialItems.length)];
-            const { error } = await supabase.from('inventory').insert({
-              user_id: userId,
-              item_id: randomMaterial.id,
-              is_equipped: false,
-              slot: randomMaterial.valid_slot || null
-            });
-            if (!error) {
+            const { data: rpcResult, error: rpcError } = await supabase
+              .rpc('add_item_to_inventory', {
+                p_user_id: userId,
+                p_item_id: randomMaterial.id,
+                p_quantity: 1
+              });
+            
+            if (!rpcError && rpcResult && rpcResult.success) {
+              // Update slot if needed
+              if (rpcResult.inventory_id && randomMaterial.valid_slot) {
+                await supabase
+                  .from('inventory')
+                  .update({ slot: randomMaterial.valid_slot })
+                  .eq('id', rpcResult.inventory_id);
+              }
               logMessage = `You found a ${randomMaterial.name}!`;
               onEffect('item');
             } else {
@@ -1026,13 +1060,21 @@ export function useGameLoop(
             
             if (fallbackItems && fallbackItems.length > 0) {
               const randomItem = fallbackItems[Math.floor(Math.random() * fallbackItems.length)];
-              const { error } = await supabase.from('inventory').insert({
-                user_id: userId,
-                item_id: randomItem.id,
-                is_equipped: false,
-                slot: randomItem.valid_slot || null
-              });
-              if (!error) {
+              const { data: rpcResult, error: rpcError } = await supabase
+                .rpc('add_item_to_inventory', {
+                  p_user_id: userId,
+                  p_item_id: randomItem.id,
+                  p_quantity: 1
+                });
+              
+              if (!rpcError && rpcResult && rpcResult.success) {
+                // Update slot if needed
+                if (rpcResult.inventory_id && randomItem.valid_slot) {
+                  await supabase
+                    .from('inventory')
+                    .update({ slot: randomItem.valid_slot })
+                    .eq('id', rpcResult.inventory_id);
+                }
                 logMessage = `You found a ${randomItem.name}!`;
                 onEffect('item');
               } else {
@@ -1224,16 +1266,21 @@ export function useGameLoop(
               
               const INVENTORY_LIMIT = 60;
               if ((currentInventoryCount || 0) < INVENTORY_LIMIT) {
-                const { error: insertError } = await supabase
-                  .from('inventory')
-                  .insert({
-                    user_id: userId,
-                    item_id: ratHideVest.id,
-                    is_equipped: false,
-                    slot: ratHideVest.valid_slot
+                const { data: rpcResult, error: rpcError } = await supabase
+                  .rpc('add_item_to_inventory', {
+                    p_user_id: userId,
+                    p_item_id: ratHideVest.id,
+                    p_quantity: 1
                   });
                 
-                if (!insertError) {
+                if (!rpcError && rpcResult && rpcResult.success) {
+                  // Update slot if needed
+                  if (rpcResult.inventory_id && ratHideVest.valid_slot) {
+                    await supabase
+                      .from('inventory')
+                      .update({ slot: ratHideVest.valid_slot })
+                      .eq('id', rpcResult.inventory_id);
+                  }
                   addLog('The King drops his vestment! [SET ITEM]');
                   onEffect('item');
                 }
@@ -1291,10 +1338,10 @@ export function useGameLoop(
           .single();
 
         if (rustyShiv) {
-          await supabase.from('inventory').insert({
-            user_id: userId,
-            item_id: rustyShiv.id,
-            is_equipped: false
+          await supabase.rpc('add_item_to_inventory', {
+            p_user_id: userId,
+            p_item_id: rustyShiv.id,
+            p_quantity: 1
           });
         }
 

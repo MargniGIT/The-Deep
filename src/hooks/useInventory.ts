@@ -67,16 +67,25 @@ export function useInventory(userId: string | null) {
     if (!userId) return false;
     setLoading(true);
     try {
-      // 1. Check if Scrap Metal item exists in DB
-      const { data: scrapItemDef } = await supabase
-        .from('items')
-        .select('id')
-        .eq('id', '1000')
+      // 1. Get the item to calculate scrap value
+      const { data: inventoryItem } = await supabase
+        .from('inventory')
+        .select('*, item:items(*)')
+        .eq('id', itemId)
+        .eq('user_id', userId)
         .single();
 
-      if (!scrapItemDef) {
-        alert("CRITICAL ERROR: 'Scrap Metal' item (ID 1000) is missing from the database.\nPlease run the 'setup_scrap.sql' script in your Supabase SQL Editor.");
-        throw new Error("Scrap Metal item missing in DB.");
+      if (!inventoryItem) {
+        throw new Error("Item not found in inventory.");
+      }
+
+      const item = inventoryItem.item;
+      const quantity = inventoryItem.quantity || 1;
+      const scrapValue = (item.scrap_value || item.value || 0) * quantity;
+
+      if (scrapValue <= 0) {
+        alert("This item has no scrap value.");
+        return false;
       }
 
       // 2. Delete the item
@@ -88,14 +97,19 @@ export function useInventory(userId: string | null) {
 
       if (deleteError) throw deleteError;
 
-      // 3. Add Scrap Metal (ID: 1000)
-      const { error: insertError } = await supabase.from('inventory').insert({
-        user_id: userId,
-        item_id: '1000', // Using '1000' as string ID for Scrap Metal
-        is_equipped: false,
-      });
+      // 3. Add Scrap Metal (ID: 1000) using RPC function for stacking
+      const { data: rpcResult, error: rpcError } = await supabase
+        .rpc('add_item_to_inventory', {
+          p_user_id: userId,
+          p_item_id: 1000,
+          p_quantity: scrapValue
+        });
 
-      if (insertError) throw insertError;
+      if (rpcError) throw rpcError;
+
+      if (rpcResult && !rpcResult.success) {
+        throw new Error(rpcResult.error || 'Failed to add scrap metal');
+      }
 
       return true;
     } catch (error: unknown) {
