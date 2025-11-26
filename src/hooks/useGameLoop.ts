@@ -58,7 +58,7 @@ export function useGameLoop(
   userId: string | null,
   player: PlayerProfile | null,
   onProfileUpdate: (newProfile: PlayerProfile) => void,
-  onEffect: (type: 'damage' | 'gold' | 'xp' | 'item', value?: number) => void
+  onEffect: (type: 'damage' | 'gold' | 'xp' | 'item' | 'ghost', value?: number) => void
 ) {
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
@@ -68,6 +68,35 @@ export function useGameLoop(
   const addLog = useCallback((message: string) => {
     setLogs((prev) => [message, ...prev].slice(0, 50));
   }, []);
+
+  // Helper function to check for ghost users at a given depth
+  const checkForGhosts = useCallback(async (depth: number): Promise<void> => {
+    if (!userId) return;
+    
+    try {
+      const { data: ghostUsers } = await supabase
+        .from('profiles')
+        .select('username')
+        .neq('id', userId) // Exclude current user
+        .gte('depth', depth - 5)
+        .lte('depth', depth + 5)
+        .limit(1);
+
+      if (ghostUsers && ghostUsers.length > 0) {
+        const ghostUsername = ghostUsers[0].username || 'Unknown Delver';
+        const ghostMessages = [
+          `[GHOST] You see a footprint left by ${ghostUsername}.`,
+          `[GHOST] The echo of ${ghostUsername} lingers here.`
+        ];
+        const ghostMessage = ghostMessages[Math.floor(Math.random() * ghostMessages.length)];
+        addLog(ghostMessage);
+        onEffect('ghost');
+      }
+    } catch (err) {
+      // Silently fail ghost checks - don't interrupt gameplay
+      console.error('Ghost check failed:', err);
+    }
+  }, [userId, addLog, onEffect]);
 
   // Fetch grave depth on load
   useEffect(() => {
@@ -190,6 +219,9 @@ export function useGameLoop(
         addLog('[!] Your lost gear is here.');
         setCanRetrieve(true);
       }
+
+      // --- GHOST CHECK ---
+      await checkForGhosts(newDepth);
 
       // --- EXPLICIT STAMINA PUNISHMENT ---
       // If you keep descending with no stamina, you take HP damage instead.
@@ -446,7 +478,184 @@ export function useGameLoop(
 
     } catch (err) { console.error(err); addLog("Something went wrong."); }
     finally { setLoading(false); }
-  }, [userId, player, loading, addLog, onProfileUpdate, onEffect, graveDepth]);
+  }, [userId, player, loading, addLog, onProfileUpdate, onEffect, graveDepth, checkForGhosts]);
 
-  return { handleDescend, handleStatUpgrade, handleGoldUpgrade, logs, loading, canRetrieve, setCanRetrieve, addLog, setGraveDepth };
+  const handleExplore = useCallback(async () => {
+    if (!userId) {
+      console.error('No user ID found');
+      return;
+    }
+    if (!player || loading) return;
+
+    setLoading(true);
+
+    try {
+      const currentDepth = player.depth || 0;
+      
+      // Calculate dynamic stamina cost
+      const staminaCost = Math.max(1, Math.floor(currentDepth / 1000));
+      
+      // Check if player has enough stamina
+      if ((player.current_stamina || 0) < staminaCost) {
+        addLog(`Not enough stamina! Need ${staminaCost} stamina to explore.`);
+        setLoading(false);
+        return;
+      }
+
+      let newStamina = (player.current_stamina || 0) - staminaCost;
+      let newGold = player.gold || 0;
+      let newVigor = player.vigor;
+      let newXP = player.xp || 0;
+      let logMessage = "";
+
+      // --- GHOST CHECK ---
+      await checkForGhosts(currentDepth);
+
+      const roll = Math.floor(Math.random() * 100) + 1;
+
+      // Loot Table: 60% Materials, 20% Nothing, 20% Combat
+      if (roll <= 60) {
+        // 60% chance: Find Materials (prioritize type='material')
+        const { data: materialItems } = await supabase
+          .from('items')
+          .select('*')
+          .eq('type', 'material')
+          .lte('min_depth', currentDepth)
+          .gte('max_depth', currentDepth)
+          .limit(10);
+
+        if (materialItems && materialItems.length > 0) {
+          const randomMaterial = materialItems[Math.floor(Math.random() * materialItems.length)];
+          const { error } = await supabase.from('inventory').insert({
+            user_id: userId,
+            item_id: randomMaterial.id,
+            is_equipped: false,
+            slot: randomMaterial.valid_slot || null
+          });
+          if (!error) {
+            logMessage = `You found a ${randomMaterial.name}!`;
+            onEffect('item');
+          } else {
+            logMessage = "You found something, but couldn't pick it up.";
+          }
+        } else {
+          // Fallback: any item if no materials available
+          const { data: fallbackItems } = await supabase
+            .from('items')
+            .select('*')
+            .lte('min_depth', currentDepth)
+            .gte('max_depth', currentDepth)
+            .limit(10);
+          
+          if (fallbackItems && fallbackItems.length > 0) {
+            const randomItem = fallbackItems[Math.floor(Math.random() * fallbackItems.length)];
+            const { error } = await supabase.from('inventory').insert({
+              user_id: userId,
+              item_id: randomItem.id,
+              is_equipped: false,
+              slot: randomItem.valid_slot || null
+            });
+            if (!error) {
+              logMessage = `You found a ${randomItem.name}!`;
+              onEffect('item');
+            } else {
+              logMessage = "You found something, but couldn't pick it up.";
+            }
+          } else {
+            logMessage = "You searched thoroughly but found nothing.";
+          }
+        }
+      } else if (roll <= 80) {
+        // 20% chance: Nothing
+        logMessage = "You explored the area but found nothing of value.";
+      } else {
+        // 20% chance: Combat
+        const { data: monsters } = await supabase
+          .from('monsters')
+          .select('*')
+          .lte('min_depth', currentDepth)
+          .gte('max_depth', currentDepth)
+          .limit(5);
+
+        const monster = monsters?.length ? monsters[Math.floor(Math.random() * monsters.length)] : null;
+
+        if (!monster) {
+          newVigor = Math.max(0, newVigor - 2);
+          logMessage = "You tripped on a rock! (-2 damage)";
+          onEffect('damage', 2);
+        } else {
+          const { data: gear } = await supabase
+            .from('inventory')
+            .select('*, item:items(*)')
+            .eq('user_id', userId)
+            .eq('is_equipped', true);
+          
+          let bonusAtk = 0, bonusDef = 0;
+          gear?.forEach((g: any) => { 
+            const stats = g.stats_override || g.item?.stats || {};
+            bonusAtk += stats.damage || 0; 
+            bonusDef += stats.defense || 0; 
+          });
+
+          const playerTotalAtk = (player.precision || 0) + bonusAtk;
+          const playerTotalDef = (player.vigor || 0) + bonusDef;
+
+          const critRoll = Math.random();
+          const critMultiplier = critRoll < 0.1 ? 2 : 1;
+          
+          const dmgToMonster = Math.max(1, Math.floor((playerTotalAtk - monster.defense) * critMultiplier));
+          const dmgToPlayer = Math.max(1, monster.attack - playerTotalDef);
+          
+          const hitsToKill = Math.ceil(monster.hp / dmgToMonster);
+          const totalDmgTaken = hitsToKill * dmgToPlayer;
+
+          newVigor = Math.max(0, newVigor - totalDmgTaken);
+
+          if (newVigor > 0) {
+            newGold += monster.gold_reward;
+            newXP += monster.xp_reward;
+            const critText = critMultiplier > 1 ? ' [CRIT!]' : '';
+            logMessage = `Defeated ${monster.name}!${critText} Took ${totalDmgTaken} damage.`;
+            onEffect('damage', totalDmgTaken);
+            setTimeout(() => onEffect('gold', monster.gold_reward), 200);
+            setTimeout(() => onEffect('xp', monster.xp_reward), 400);
+          } else {
+            logMessage = `YOU DIED fighting ${monster.name}.`;
+            onEffect('damage', 999);
+            // Death handling would be similar to handleDescend, but simplified for explore
+            newVigor = player.max_stamina;
+            newStamina = player.max_stamina;
+          }
+        }
+      }
+
+      // Very low XP reward (1-2 XP) for exploration
+      const exploreXP = Math.floor(Math.random() * 2) + 1;
+      newXP += exploreXP;
+      if (exploreXP > 0) {
+        setTimeout(() => onEffect('xp', exploreXP), 600);
+      }
+
+      const updates = { 
+        current_stamina: newStamina, 
+        gold: newGold, 
+        vigor: newVigor, 
+        xp: newXP 
+      };
+      const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
+      if (error) throw error;
+
+      addLog(logMessage);
+      onProfileUpdate({ ...player, ...updates });
+
+    } catch (err) { 
+      console.error(err); 
+      addLog("Something went wrong while exploring."); 
+    }
+    finally { 
+      setLoading(false); 
+    }
+  }, [userId, player, loading, addLog, onProfileUpdate, onEffect, checkForGhosts]);
+
+  return { handleDescend, handleExplore, handleStatUpgrade, handleGoldUpgrade, logs, loading, canRetrieve, setCanRetrieve, addLog, setGraveDepth };
 }

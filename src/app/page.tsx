@@ -31,7 +31,7 @@ export default function Home() {
   const [retrieving, setRetrieving] = useState(false);
 
   // --- 1. UPDATED HANDLE EFFECT ---
-  const handleEffect = useCallback((type: 'damage' | 'gold' | 'xp' | 'item', value?: number) => {
+  const handleEffect = useCallback((type: 'damage' | 'gold' | 'xp' | 'item' | 'ghost', value?: number) => {
     if (type === 'damage') {
       setDamageFlash(true);
       setTimeout(() => setDamageFlash(false), 300);
@@ -45,6 +45,7 @@ export default function Home() {
     if (type === 'gold' && value) { text = `+${value} G`; color = 'text-yellow-400 font-bold text-xl'; }
     if (type === 'xp' && value) { text = `+${value} XP`; color = 'text-blue-400 font-bold'; }
     if (type === 'item') { text = 'ITEM FOUND!'; color = 'text-purple-400 font-bold'; }
+    // Ghost effect handled visually later, no floating text needed
 
     if (text) {
       setFloatingTexts(prev => [
@@ -65,12 +66,29 @@ export default function Home() {
     }
   }, []);
 
-  const { handleDescend, handleStatUpgrade, handleGoldUpgrade, logs, loading: loopLoading, canRetrieve, setCanRetrieve, addLog, setGraveDepth } = useGameLoop(
+  const { handleDescend, handleExplore, handleStatUpgrade, handleGoldUpgrade, logs, loading: loopLoading, canRetrieve, setCanRetrieve, addLog, setGraveDepth } = useGameLoop(
     userId,
     player, 
     (p) => setPlayer(p), 
     handleEffect 
   );
+
+  // Helper function to get biome style based on depth
+  const getBiomeStyle = useCallback((depth: number) => {
+    if (depth < 500) {
+      // Standard: < 500m
+      return 'bg-zinc-950 text-zinc-100';
+    } else if (depth < 1500) {
+      // Mossy Glow: 500-1500m
+      return 'bg-slate-950 text-emerald-100 shadow-[inset_0_0_100px_rgba(16,185,129,0.1)]';
+    } else if (depth < 3000) {
+      // Crystal: 1500-3000m
+      return 'bg-[#0a0510] text-purple-100 shadow-[inset_0_0_100px_rgba(147,51,234,0.1)]';
+    } else {
+      // The Void: > 3000m
+      return 'bg-black text-red-50';
+    }
+  }, []);
 
   // Load authenticated user ID (if any)
   useEffect(() => {
@@ -364,8 +382,10 @@ export default function Home() {
   }
   if (!player) return <div className="h-screen flex items-center justify-center text-zinc-500">Loading Abyss...</div>;
 
+  const biomeStyle = player ? getBiomeStyle(player.depth || 0) : 'bg-zinc-950 text-zinc-100';
+
   return (
-    <main className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100 font-mono max-w-md mx-auto border-x border-zinc-800 relative overflow-hidden">
+    <main className={`flex min-h-screen flex-col font-mono max-w-md mx-auto border-x border-zinc-800 relative overflow-hidden ${biomeStyle}`}>
       
       <div className={`pointer-events-none absolute inset-0 z-50 ${damageFlash ? 'animate-damage' : ''}`} />
 
@@ -427,9 +447,18 @@ export default function Home() {
 
       <footer className="p-4 border-t border-zinc-800 bg-zinc-900 grid grid-cols-3 gap-2">
         <button onClick={() => setIsTownOpen(!isTownOpen)} className="bg-zinc-800 hover:bg-zinc-700 p-3 rounded font-bold text-yellow-500 transition-colors">{player.depth > 0 ? 'CAMP' : 'TOWN'}</button>
-        <button onClick={handleDescend} disabled={loopLoading || isTownOpen || isInventoryOpen} className="bg-zinc-100 hover:bg-white text-black p-3 rounded font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transform duration-75">
-          {loopLoading ? '...' : 'DESCEND'}
-        </button>
+        <div className="flex flex-col gap-2">
+          <button onClick={handleDescend} disabled={loopLoading || isTownOpen || isInventoryOpen} className="bg-zinc-100 hover:bg-white text-black p-2 rounded font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transform duration-75 text-sm">
+            {loopLoading ? '...' : 'DESCEND'}
+          </button>
+          <button 
+            onClick={handleExplore} 
+            disabled={loopLoading || isTownOpen || isInventoryOpen || (player.current_stamina || 0) < Math.max(1, Math.floor((player.depth || 0) / 1000))} 
+            className="bg-zinc-800 hover:bg-zinc-700 p-2 rounded font-bold text-green-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transform duration-75 text-sm"
+          >
+            {loopLoading ? '...' : `EXPLORE (-${Math.max(1, Math.floor((player.depth || 0) / 1000))})`}
+          </button>
+        </div>
         <button onClick={() => setIsInventoryOpen(true)} className="bg-zinc-800 hover:bg-zinc-700 p-3 rounded font-bold text-blue-400 transition-colors">BAG</button>
       </footer>
     </main>
