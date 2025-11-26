@@ -54,6 +54,7 @@ export default function Home() {
   const [achievementNotification, setAchievementNotification] = useState<{ title: string; icon?: string; description: string } | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState<string>('Authenticating...');
 
   // --- 1. UPDATED HANDLE EFFECT ---
   const handleEffect = useCallback((type: 'damage' | 'gold' | 'xp' | 'item' | 'ghost' | 'achievement', value?: number, achievementData?: { title: string; description: string }) => {
@@ -159,13 +160,25 @@ export default function Home() {
   }, []);
 
   const loadPlayerAndStats = useCallback(async (currentUserId: string) => {
-    // Try up to 15 times with increasing delays (for slower mobile/network connections)
-    const maxRetries = 15;
+    setLoadingStatus('Authenticating...');
+    
+    // Try up to 5 times with delays (reduced from 15 since we'll manually create after 2 retries)
+    const maxRetries = 5;
     const baseDelay = 500;
+    const manualFallbackThreshold = 2; // After 2 retries (~1 second), use manual fallback
     
     for (let i = 0; i < maxRetries; i++) {
       try {
-        // 1. Try to fetch
+        // Update loading status based on retry count
+        if (i === 0) {
+          setLoadingStatus('Waking up Hamsters...');
+        } else if (i === 1) {
+          setLoadingStatus('Generating World...');
+        } else if (i >= 2) {
+          setLoadingStatus('Creating Profile...');
+        }
+
+        // 1. Try to fetch profile
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
@@ -185,9 +198,106 @@ export default function Home() {
             continue;
           }
           
-          // If it's a "not found" error (PGRST116), the profile doesn't exist yet - continue retrying
+          // If it's a "not found" error (PGRST116), check if we should use manual fallback
           if (errorCode === 'PGRST116' || errorStatus === 404) {
-            // Profile doesn't exist yet, continue retrying
+            // If we've retried more than threshold times, use manual fallback
+            if (i >= manualFallbackThreshold) {
+              console.log(`Profile not found after ${i + 1} retries. Using manual fallback...`);
+              setLoadingStatus('Creating Profile...');
+              
+              // Manual insert with ON CONFLICT handling
+              try {
+                const { data: newProfile, error: createError } = await supabase
+                  .from('profiles')
+                  .insert({
+                    id: currentUserId,
+                    username: `Diver-${currentUserId.slice(0, 8)}`,
+                    depth: 0,
+                    gold: 50,
+                    vigor: 0,
+                    precision: 0,
+                    aether: 0,
+                    current_stamina: 100,
+                    max_stamina: 100,
+                    health: 100,
+                    max_health: 100,
+                    xp: 0,
+                    level: 1,
+                    stat_points: 0,
+                    stats_bought: 0
+                  })
+                  .select()
+                  .single();
+
+                // Handle success or conflict (409 = conflict, profile was created by trigger)
+                if (newProfile && !createError) {
+                  console.log("Profile created manually");
+                  // Fetch gear and set player
+                  const { data: gear } = await supabase
+                    .from('inventory')
+                    .select('*, item:items(*)')
+                    .eq('user_id', currentUserId)
+                    .eq('is_equipped', true);
+
+                  let bonusAttack = 0, bonusDefense = 0;
+                  gear?.forEach((entry: any) => {
+                    bonusAttack += (entry.item.stats?.damage || 0);
+                    bonusDefense += (entry.item.stats?.defense || 0);
+                  });
+
+                  setPlayer(newProfile as PlayerProfile);
+                  setDerivedStats({
+                    attack: (newProfile.precision || 0) + bonusAttack,
+                    defense: (newProfile.vigor || 0) + bonusDefense,
+                  });
+                  return; // SUCCESS
+                } else if (createError) {
+                  // Check if it's a conflict error (409) - means trigger created it
+                  const createErrorStatus = (createError as any).status || (createError as any).statusCode;
+                  const createErrorCode = (createError as any).code;
+                  
+                  if (createErrorStatus === 409 || createErrorCode === '23505' || (createError as any).message?.includes('duplicate') || (createError as any).message?.includes('conflict')) {
+                    console.log("Profile was created by trigger (conflict detected). Fetching...");
+                    // Profile was created by trigger, fetch it immediately
+                    const { data: fetchedProfile, error: fetchError } = await supabase
+                      .from('profiles')
+                      .select('*')
+                      .eq('id', currentUserId)
+                      .single();
+                    
+                    if (fetchedProfile && !fetchError) {
+                      // Fetch gear and set player
+                      const { data: gear } = await supabase
+                        .from('inventory')
+                        .select('*, item:items(*)')
+                        .eq('user_id', currentUserId)
+                        .eq('is_equipped', true);
+
+                      let bonusAttack = 0, bonusDefense = 0;
+                      gear?.forEach((entry: any) => {
+                        bonusAttack += (entry.item.stats?.damage || 0);
+                        bonusDefense += (entry.item.stats?.defense || 0);
+                      });
+
+                      setPlayer(fetchedProfile as PlayerProfile);
+                      setDerivedStats({
+                        attack: (fetchedProfile.precision || 0) + bonusAttack,
+                        defense: (fetchedProfile.vigor || 0) + bonusDefense,
+                      });
+                      return; // SUCCESS
+                    }
+                  }
+                  
+                  // If not a conflict, log and continue to retry
+                  console.warn("Manual insert failed (non-conflict):", createError);
+                }
+              } catch (manualError) {
+                console.error("Error in manual fallback:", manualError);
+                // Continue to retry loop
+              }
+            }
+            
+            // Continue retrying if we haven't hit threshold yet
             const delay = baseDelay * (1 + i * 0.2);
             await new Promise(resolve => setTimeout(resolve, delay));
             continue;
@@ -202,6 +312,7 @@ export default function Home() {
 
         // 2. If we found it, Great! Load stats and exit.
         if (profile) {
+          setLoadingStatus('Loading Profile...');
           
           // Fetch Gear
           const { data: gear } = await supabase
@@ -237,8 +348,9 @@ export default function Home() {
       }
     }
     
-    // If profile still doesn't exist after all retries, try to create it
-    console.warn("Profile not found after retries. Attempting to create profile...");
+    // Final fallback: If profile still doesn't exist after all retries, try to create it one more time
+    console.warn("Profile not found after all retries. Final attempt to create profile...");
+    setLoadingStatus('Finalizing Profile...');
     try {
       const { data: newProfile, error: createError } = await supabase
         .from('profiles')
@@ -246,7 +358,7 @@ export default function Home() {
           id: currentUserId,
           username: `Diver-${currentUserId.slice(0, 8)}`,
           depth: 0,
-          gold: 0,
+          gold: 50,
           vigor: 0,
           precision: 0,
           aether: 0,
@@ -263,7 +375,7 @@ export default function Home() {
         .single();
 
       if (newProfile && !createError) {
-        console.log("Profile created successfully");
+        console.log("Profile created successfully (final fallback)");
         setPlayer(newProfile as PlayerProfile);
         setDerivedStats({
           attack: newProfile.precision || 0,
@@ -550,11 +662,9 @@ export default function Home() {
       <div className="h-screen flex flex-col items-center justify-center text-zinc-500 bg-zinc-950">
         <div className="text-center space-y-4">
           <div className="text-xl font-bold">Loading Abyss...</div>
-          {isLoading && (
-            <div className="text-sm text-zinc-600 animate-pulse">
-              Connecting to the depths...
-            </div>
-          )}
+          <div className="text-sm text-zinc-600 animate-pulse">
+            {loadingStatus}
+          </div>
           {loadingError && (
             <div className="space-y-2">
               <div className="text-sm text-red-400">{loadingError}</div>

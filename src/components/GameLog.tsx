@@ -32,7 +32,8 @@ export default function GameLog({ logs = [] }: GameLogProps) {
               !entry.includes('[SET]') &&
               !entry.includes('[RARE]') &&
               !entry.includes('[UNCOMMON]') &&
-              !entry.includes('[JUNK]');
+              !entry.includes('[JUNK]') &&
+              !entry.includes('[GHOST]');
 
             // Parse rarity tags and apply styling
             const parseRarityTags = (text: string) => {
@@ -40,8 +41,8 @@ export default function GameLog({ logs = [] }: GameLogProps) {
               let remaining = text;
               let lastIndex = 0;
 
-              // Match rarity tags
-              const tagPattern = /\[(LEGENDARY|SET|RARE|UNCOMMON|JUNK)\]/g;
+              // Match rarity tags and ghost tag
+              const tagPattern = /\[(LEGENDARY|SET|RARE|UNCOMMON|JUNK|GHOST)\]/g;
               let match;
 
               while ((match = tagPattern.exec(text)) !== null) {
@@ -68,6 +69,9 @@ export default function GameLog({ logs = [] }: GameLogProps) {
                     break;
                   case 'JUNK':
                     className = 'text-zinc-600';
+                    break;
+                  case 'GHOST':
+                    className = 'text-cyan-400 italic tracking-wide';
                     break;
                 }
                 parts.push({ text: match[0], className });
@@ -108,6 +112,8 @@ export default function GameLog({ logs = [] }: GameLogProps) {
                       )
                     ))}
                   </span>
+                ) : entry.includes('[GHOST]') ? (
+                  <span className="text-cyan-400 italic tracking-wide">{entry}</span>
                 ) : entry.includes('You found a') && !entry.includes('vein') ? (
                   <span className="text-purple-400 font-semibold">{entry}</span>
                 ) : entry.includes('vein') ? (

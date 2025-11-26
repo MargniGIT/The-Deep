@@ -220,36 +220,31 @@ export function useGameLoop(
   }, [userId]);
 
   // Helper function to check for ghost users at a given depth
-  const checkForGhosts = useCallback(async (depth: number): Promise<void> => {
-    if (!userId) return;
+  const checkForGhosts = useCallback(async (depth: number): Promise<string | null> => {
+    if (!userId) return null;
     
-    // Only check for ghosts 15% of the time (rare occurrence)
-    if (Math.random() > 0.15) return;
+    // Only check for ghosts 20% of the time (to save DB calls and keep it rare)
+    if (Math.random() > 0.20) return null;
     
     try {
-      const { data: ghostUsers } = await supabase
+      const { data: ghosts } = await supabase
         .from('profiles')
         .select('username')
-        .neq('id', userId) // Exclude current user
-        .gte('depth', depth - 5)
-        .lte('depth', depth + 5)
+        .eq('depth', depth)
+        .neq('id', userId) // Don't find yourself
         .limit(1);
 
-      if (ghostUsers && ghostUsers.length > 0) {
-        const ghostUsername = ghostUsers[0].username || 'Unknown Delver';
-        const ghostMessages = [
-          `[GHOST] You see a footprint left by ${ghostUsername}.`,
-          `[GHOST] The echo of ${ghostUsername} lingers here.`
-        ];
-        const ghostMessage = ghostMessages[Math.floor(Math.random() * ghostMessages.length)];
-        addLog(ghostMessage);
-        onEffect('ghost');
+      if (ghosts && ghosts.length > 0) {
+        const ghostUsername = ghosts[0].username || 'Unknown Delver';
+        return `[GHOST] You see a faint footprint left by ${ghostUsername}.`;
       }
     } catch (err) {
       // Silently fail ghost checks - don't interrupt gameplay
       console.error('Ghost check failed:', err);
     }
-  }, [userId, addLog, onEffect]);
+    
+    return null;
+  }, [userId]);
 
   // Fetch grave depth on load
   useEffect(() => {
@@ -498,9 +493,6 @@ export function useGameLoop(
         setCanRetrieve(true);
       }
 
-      // --- GHOST CHECK ---
-      await checkForGhosts(newDepth);
-
       // --- EXPLICIT STAMINA PUNISHMENT ---
       // If you keep descending with no stamina, you take HP damage instead.
       if (player.current_stamina <= 0) {
@@ -519,7 +511,14 @@ export function useGameLoop(
 
       // 1. ATMOSPHERE (0-40%) - The "Build Up"
       if (roll <= 40) {
-        logMessage = getAtmosphereLog(newDepth);
+        // Check for ghosts first - if found, override atmosphere log
+        const ghostMessage = await checkForGhosts(newDepth);
+        if (ghostMessage) {
+          logMessage = ghostMessage;
+          onEffect('ghost');
+        } else {
+          logMessage = getAtmosphereLog(newDepth);
+        }
       }
 
       // 2. GOLD (41-70%) - The "Scavenge"
@@ -969,7 +968,7 @@ export function useGameLoop(
 
     } catch (err) { console.error(err); addLog("Something went wrong."); }
     finally { setLoading(false); }
-  }, [userId, player, loading, addLog, onProfileUpdate, onEffect, graveDepth, checkForGhosts, unlockAchievement, unlockTitle]);
+  }, [userId, player, loading, addLog, onProfileUpdate, onEffect, graveDepth, checkForGhosts, unlockAchievement, unlockTitle, setCanRetrieve]);
 
   const handleExplore = useCallback(async () => {
     if (!userId) {
@@ -1045,9 +1044,6 @@ export function useGameLoop(
       // --- AETHER GOLD MULTIPLIER (includes set bonus gold) ---
       const baseGoldMult = 1 + ((player.aether || 0) * 0.05); // 5% bonus per Aether point
       const goldMult = baseGoldMult * (1 + (setBonusGold / 100)); // Apply set bonus gold as percentage
-
-      // --- GHOST CHECK ---
-      await checkForGhosts(currentDepth);
 
       const roll = Math.floor(Math.random() * 100) + 1;
 
@@ -1132,7 +1128,14 @@ export function useGameLoop(
         }
       } else if (roll <= 80) {
         // 20% chance: Nothing
-        logMessage = "You explored the area but found nothing of value.";
+        // Check for ghosts - if found, override the "nothing" message
+        const ghostMessage = await checkForGhosts(currentDepth);
+        if (ghostMessage) {
+          logMessage = ghostMessage;
+          onEffect('ghost');
+        } else {
+          logMessage = "You explored the area but found nothing of value.";
+        }
       } else {
         // 20% chance: Combat
         const { data: monsters } = await supabase
