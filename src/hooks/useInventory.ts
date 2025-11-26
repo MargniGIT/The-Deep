@@ -14,7 +14,6 @@ export function useInventory() {
       console.log(`Attempting to equip Item ${itemId} into ${targetSlot}...`);
 
       // 1. Unequip ANYTHING currently in this slot for this user
-      // (This ensures we don't have 2 helmets on)
       const { error: unequipError } = await supabase
         .from('inventory')
         .update({ is_equipped: false })
@@ -35,8 +34,8 @@ export function useInventory() {
       console.log("Equip success!");
       return true;
 
-    } catch (error: any) {
-      console.error('Equip Failed:', error.message);
+    } catch (error: unknown) {
+      console.error('Equip Failed:', (error as Error).message);
       return false;
     } finally {
       setLoading(false);
@@ -55,13 +54,58 @@ export function useInventory() {
 
       if (error) throw error;
       return true;
-    } catch (error: any) {
-      console.error('Unequip Failed:', error.message);
+    } catch (error: unknown) {
+      console.error('Unequip Failed:', (error as Error).message);
       return false;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  return { equipItem, unequipItem, loading };
+  // Function to Scrap Item
+  const scrapItem = useCallback(async (itemId: number) => {
+    setLoading(true);
+    try {
+      // 1. Check if Scrap Metal item exists in DB
+      const { data: scrapItemDef } = await supabase
+        .from('items')
+        .select('id')
+        .eq('id', '1000')
+        .single();
+
+      if (!scrapItemDef) {
+        alert("CRITICAL ERROR: 'Scrap Metal' item (ID 1000) is missing from the database.\nPlease run the 'setup_scrap.sql' script in your Supabase SQL Editor.");
+        throw new Error("Scrap Metal item missing in DB.");
+      }
+
+      // 2. Delete the item
+      const { error: deleteError } = await supabase
+        .from('inventory')
+        .delete()
+        .eq('id', itemId)
+        .eq('user_id', HARDCODED_USER_ID);
+
+      if (deleteError) throw deleteError;
+
+      // 3. Add Scrap Metal (ID: 1000)
+      const { error: insertError } = await supabase
+        .from('inventory')
+        .insert({
+          user_id: HARDCODED_USER_ID,
+          item_id: '1000', // Using '1000' as string ID for Scrap Metal
+          is_equipped: false
+        });
+
+      if (insertError) throw insertError;
+
+      return true;
+    } catch (error: unknown) {
+      console.error('Scrap Failed:', (error as Error).message);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { equipItem, unequipItem, scrapItem, loading };
 }

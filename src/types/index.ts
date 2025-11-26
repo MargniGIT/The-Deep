@@ -1,7 +1,7 @@
 // The Deep - Type Definitions
 
 export type StatType = 'vigor' | 'precision' | 'aether';
-export type ItemType = 'weapon' | 'armor' | 'consumable' | 'relic';
+export type ItemType = 'weapon' | 'armor' | 'consumable' | 'relic' | 'material';
 export type EquipmentSlot = 'head' | 'chest' | 'legs' | 'main_hand' | 'off_hand';
 export type ArmorWeight = 'heavy' | 'medium' | 'light';
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
@@ -31,7 +31,7 @@ export interface Item {
   id: string;
   name: string;
   description?: string;
-  itemType: ItemType;
+  type: ItemType;
   slot?: EquipmentSlot;
   armorWeight?: ArmorWeight;
   weaponType?: string;
@@ -40,12 +40,7 @@ export interface Item {
   stats: Record<string, number>; // flexible stats: {damage: 10, defense: 5, etc.}
 }
 
-export interface InventoryItem {
-  id: number;
-  item: Item;
-  is_equipped: boolean;
-  slot: string | null;
-}
+
 
 export interface Equipment {
   head?: Item;
@@ -89,4 +84,34 @@ export interface PlayerProfile {
   level: number;
   stat_points: number;
 }
+
+// --- Add this block to src/types/index.ts ---
+
+export interface BaseItem {
+  id: number;
+  name: string;
+  type: string;
+  rarity: string;
+  valid_slot: string | null; // <--- This is the missing link
+  stats: Record<string, number>;
+  scrap_value: number;
+  value: number;
+  icon_slug: string | null;
+}
+
+export interface InventoryItem {
+  id: number;
+  user_id: string;
+  item_id: number;
+  is_equipped: boolean;
+  slot: string | null;
+
+  // The joined item data (the dictionary definition)
+  item: BaseItem;
+
+  // The affixed data (from the affix system)
+  name_override?: string;
+  stats_override: Record<string, number> | null;
+}
+
 // ... keep the rest of the file the same

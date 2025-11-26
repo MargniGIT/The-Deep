@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useInventory } from '@/hooks/useInventory';
-import { X, Shield, Sword, Box, Heart } from 'lucide-react';
+import { X, Shield, Sword, Box } from 'lucide-react';
+import type { InventoryItem } from '@/types';
 
 // The ID we are pretending to be
 const HARDCODED_USER_ID = '123e4567-e89b-12d3-a456-426614174000';
@@ -12,14 +13,14 @@ interface InventoryModalProps {
 }
 
 export default function InventoryModal({ isOpen, onClose }: InventoryModalProps) {
-  const [items, setItems] = useState<any[]>([]);
-  const { equipItem, unequipItem, loading: actionLoading } = useInventory();
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const { equipItem, unequipItem, scrapItem, loading: actionLoading } = useInventory();
 
   // Fetch Inventory
-  const loadInventory = async () => {
+  const loadInventory = useCallback(async () => {
     const { data, error } = await supabase
       .from('inventory')
-      .select('*, item:items(*)') 
+      .select('*, item:items(*)')
       .eq('user_id', HARDCODED_USER_ID)
       .order('is_equipped', { ascending: false });
 
@@ -28,17 +29,17 @@ export default function InventoryModal({ isOpen, onClose }: InventoryModalProps)
     } else {
       setItems(data || []);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (isOpen) loadInventory();
-  }, [isOpen]);
+  }, [isOpen, loadInventory]);
 
-  const handleItemAction = async (inventoryItem: any) => {
+  const handleItemAction = async (inventoryItem: InventoryItem) => {
     // Unequip
     if (inventoryItem.is_equipped) {
       const success = await unequipItem(inventoryItem.id);
-      if (success) await loadInventory(); 
+      if (success) await loadInventory();
       return;
     }
 
@@ -46,7 +47,7 @@ export default function InventoryModal({ isOpen, onClose }: InventoryModalProps)
     const targetSlot = inventoryItem.item.valid_slot;
     if (targetSlot) {
       const success = await equipItem(inventoryItem.id, targetSlot);
-      if (success) await loadInventory(); 
+      if (success) await loadInventory();
     } else {
       alert("You can't equip this!");
     }
@@ -57,7 +58,7 @@ export default function InventoryModal({ isOpen, onClose }: InventoryModalProps)
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-zinc-900 border border-zinc-700 w-full max-w-lg rounded-lg shadow-2xl flex flex-col max-h-[80vh]">
-        
+
         {/* Header */}
         <div className="p-4 border-b border-zinc-700 flex justify-between items-center bg-zinc-900 rounded-t-lg">
           <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
@@ -78,36 +79,33 @@ export default function InventoryModal({ isOpen, onClose }: InventoryModalProps)
           ) : (
             <div className="grid grid-cols-1 gap-2">
               {items.map((entry) => {
-                const stats = entry.item.stats || {};
-                
+                const stats = entry.stats_override || entry.item.stats || {};
+
                 return (
-                  <div 
-                    key={entry.id} 
-                    className={`flex items-center p-3 rounded border transition-colors ${
-                      entry.is_equipped 
-                        ? 'bg-zinc-900 border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.1)]' 
-                        : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
-                    }`}
+                  <div
+                    key={entry.id}
+                    className={`flex items-center p-3 rounded border transition-colors ${entry.is_equipped
+                      ? 'bg-zinc-900 border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.1)]'
+                      : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
+                      }`}
                   >
                     {/* Icon Box */}
-                    <div className={`w-12 h-12 rounded flex items-center justify-center mr-4 border shrink-0 ${
-                      entry.is_equipped 
-                        ? 'bg-green-950/30 border-green-500/30 text-green-400' 
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-600'
-                    }`}>
-                      {entry.item.valid_slot === 'main_hand' ? <Sword size={20}/> : 
-                       entry.item.valid_slot === 'chest' ? <Shield size={20}/> : 
-                       <Box size={20}/>}
+                    <div className={`w-12 h-12 rounded flex items-center justify-center mr-4 border shrink-0 ${entry.is_equipped
+                      ? 'bg-green-950/30 border-green-500/30 text-green-400'
+                      : 'bg-zinc-950 border-zinc-800 text-zinc-600'
+                      }`}>
+                      {entry.item.valid_slot === 'main_hand' ? <Sword size={20} /> :
+                        entry.item.valid_slot === 'chest' ? <Shield size={20} /> :
+                          <Box size={20} />}
                     </div>
 
                     {/* Item Details */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className={`font-bold truncate text-sm ${
-                          entry.item.rarity === 'rare' ? 'text-blue-400' : 
+                        <span className={`font-bold truncate text-sm ${entry.item.rarity === 'rare' ? 'text-blue-400' :
                           entry.item.rarity === 'uncommon' ? 'text-green-400' : 'text-zinc-200'
-                        }`}>
-                          {entry.item.name}
+                          }`}>
+                          {entry.name_override || entry.item.name}
                         </span>
                         {entry.is_equipped && (
                           <span className="text-[10px] bg-green-500/10 text-green-400 px-1.5 py-0.5 rounded border border-green-500/20 font-bold tracking-wider">
@@ -115,7 +113,7 @@ export default function InventoryModal({ isOpen, onClose }: InventoryModalProps)
                           </span>
                         )}
                       </div>
-                      
+
                       {/* STATS DISPLAY ROW */}
                       <div className="flex flex-wrap gap-2 mt-1">
                         {/* Damage Badge */}
@@ -146,16 +144,31 @@ export default function InventoryModal({ isOpen, onClose }: InventoryModalProps)
                     <button
                       disabled={actionLoading}
                       onClick={() => handleItemAction(entry)}
-                      className={`ml-3 text-xs px-3 py-2 rounded font-bold transition-all min-w-[70px] ${
-                        entry.is_equipped
-                          ? 'bg-zinc-800 text-zinc-400 hover:text-red-400 hover:bg-zinc-900 border border-zinc-700'
-                          : entry.item.valid_slot
-                            ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20'
-                            : 'bg-transparent text-zinc-600 cursor-not-allowed italic'
-                      }`}
+                      className={`ml-3 text-xs px-3 py-2 rounded font-bold transition-all min-w-[70px] ${entry.is_equipped
+                        ? 'bg-zinc-800 text-zinc-400 hover:text-red-400 hover:bg-zinc-900 border border-zinc-700'
+                        : entry.item.valid_slot
+                          ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20'
+                          : 'bg-transparent text-zinc-600 cursor-not-allowed italic'
+                        }`}
                     >
                       {entry.is_equipped ? 'UNEQUIP' : entry.item.valid_slot ? 'EQUIP' : '-'}
                     </button>
+
+                    {/* SCRAP BUTTON */}
+                    {!entry.is_equipped && entry.item.type !== 'material' && (
+                      <button
+                        disabled={actionLoading}
+                        onClick={async () => {
+                          if (confirm(`Scrap ${entry.item.name} for parts?`)) {
+                            const success = await scrapItem(entry.id);
+                            if (success) await loadInventory();
+                          }
+                        }}
+                        className="ml-2 text-xs px-3 py-2 rounded font-bold transition-all bg-zinc-800 text-zinc-500 hover:bg-red-900/30 hover:text-red-400 border border-zinc-700 hover:border-red-500/30"
+                      >
+                        SCRAP
+                      </button>
+                    )}
                   </div>
                 );
               })}

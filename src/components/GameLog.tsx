@@ -1,12 +1,10 @@
-import { Scroll, Terminal } from 'lucide-react';
+import { Terminal } from 'lucide-react';
 
 interface GameLogProps {
-  logs: string[]; // We renamed this from 'entries' to 'logs' to match page.tsx
+  logs: string[];
 }
 
 export default function GameLog({ logs = [] }: GameLogProps) {
-  // SAFETY CHECK: The '= []' above defaults it to empty array if undefined.
-  // We also check Array.isArray just to be bulletproof.
   const safeLogs = Array.isArray(logs) ? logs : [];
 
   return (
@@ -22,21 +20,49 @@ export default function GameLog({ logs = [] }: GameLogProps) {
         {safeLogs.length === 0 ? (
           <div className="text-zinc-700 italic">No activity recorded...</div>
         ) : (
-          safeLogs.map((entry, i) => (
-            <div key={i} className="border-l-2 border-zinc-800 pl-3 py-1 text-zinc-300 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              {/* Highlight special words for flavor */}
-              {entry.includes('found') ? (
-                <span className="text-yellow-500">{entry}</span>
-              ) : entry.includes('DIED') || entry.includes('damage') ? (
-                <span className="text-red-400">{entry}</span>
-              ) : (
-                <span>{entry}</span>
-              )}
-            </div>
-          ))
+          safeLogs.map((entry, i) => {
+            // Determine if this is atmosphere/scary text (default case = atmosphere)
+            const isAtmosphere = !entry.includes('You found') &&
+              !entry.includes('vein') &&
+              !entry.includes('Defeated') &&
+              !entry.includes('DIED') &&
+              !entry.includes('damage') &&
+              !entry.includes('LEVEL UP');
+
+            return (
+              <div
+                key={i}
+                className={`border-l-2 pl-3 py-1 animate-in fade-in slide-in-from-bottom-2 ${isAtmosphere
+                  ? 'border-red-900/40 duration-700'
+                  : 'border-zinc-800 duration-300'
+                  }`}
+              >
+                {/* Highlight special words for flavor */}
+                {entry.includes('You found a') && !entry.includes('vein') ? (
+                  <span className="text-purple-400 font-semibold">{entry}</span>
+                ) : entry.includes('vein') ? (
+                  <span className="text-yellow-400">{entry}</span>
+                ) : entry.includes('Defeated') ? (
+                  <span className="text-green-400">{entry}</span>
+                ) : entry.includes('DIED') || entry.includes('damage') ? (
+                  <span className="text-red-400">{entry}</span>
+                ) : entry.includes('LEVEL UP') ? (
+                  <span className="text-cyan-400 font-bold">{entry}</span>
+                ) : (
+                  // ATMOSPHERE TEXT - Make it SCARY
+                  <span className="text-zinc-600 italic animate-pulse" style={{
+                    textShadow: '0 0 8px rgba(127, 29, 29, 0.5)',
+                    animationDuration: '3s'
+                  }}>
+                    {entry}
+                  </span>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
-      
+
       {/* Bottom fade effect */}
       <div className="h-4 bg-gradient-to-t from-zinc-950 to-transparent pointer-events-none absolute bottom-0 left-0 right-0" />
     </div>
