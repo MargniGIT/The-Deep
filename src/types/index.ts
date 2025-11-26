@@ -17,14 +17,22 @@ export interface PlayerProfile {
   id: string;
   username: string;
   depth: number;
+  max_depth?: number;
   gold: number;
-  vigor: number;
+  bank_gold?: number; // Gold stored in the Vault (persists after death)
+  vigor: number; // Stat points for vigor
   precision: number;
   aether: number;
   current_stamina: number;
   max_stamina: number;
-  health: number;
-  max_health: number;
+  xp: number;
+  // NEW FIELDS
+  level: number;
+  stat_points: number;
+  stats_bought?: number;
+  is_admin?: boolean;
+  health?: number; // Current health (separate from vigor stat)
+  max_health?: number; // Max health (separate from max_stamina)
 }
 
 export interface Item {
@@ -39,8 +47,6 @@ export interface Item {
   value: number;
   stats: Record<string, number>; // flexible stats: {damage: 10, defense: 5, etc.}
 }
-
-
 
 export interface Equipment {
   head?: Item;
@@ -67,28 +73,6 @@ export interface StepResult {
   damage?: number;
   goldGained?: number;
   metadata?: Record<string, unknown>;
-}
-
-export interface PlayerProfile {
-  id: string;
-  username: string;
-  depth: number;
-  max_depth?: number;
-  gold: number;
-  bank_gold?: number; // Gold stored in the Vault (persists after death)
-  vigor: number; // Stat points for vigor
-  precision: number;
-  aether: number;
-  current_stamina: number;
-  max_stamina: number;
-  xp: number;
-  // NEW FIELDS
-  level: number;
-  stat_points: number;
-  stats_bought?: number;
-  is_admin?: boolean;
-  health?: number; // Current health (separate from vigor stat)
-  max_health?: number; // Max health (separate from max_stamina)
 }
 
 // --- Add this block to src/types/index.ts ---

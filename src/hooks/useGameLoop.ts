@@ -97,6 +97,7 @@ export function useGameLoop(
   const [logs, setLogs] = useState<string[]>([]);
   const [graveDepth, setGraveDepth] = useState<number | null>(null);
   const [canRetrieve, setCanRetrieve] = useState(false);
+  const [activeBoss, setActiveBoss] = useState<any | null>(null);
 
   const addLog = useCallback((message: string) => {
     setLogs((prev) => [message, ...prev].slice(0, 50));
@@ -499,6 +500,16 @@ export function useGameLoop(
           logMessage = "You tripped on a rock! (-2 HP)";
           onEffect('damage', 2);
         } else {
+          // --- BOSS CHECK ---
+          if (monster.is_boss) {
+            // Do NOT auto-resolve boss fights
+            setActiveBoss(monster);
+            logMessage = `A ${monster.name} blocks your path!`;
+            setLoading(false);
+            return; // Exit early, combat will be handled by CombatModal
+          }
+
+          // Regular monster combat (auto-resolve)
           const { data: gear } = await supabase.from('inventory').select('*, item:items(*)').eq('user_id', userId).eq('is_equipped', true);
           let bonusAtk = 0, bonusDef = 0;
           gear?.forEach((g: any) => { 
@@ -1023,5 +1034,124 @@ export function useGameLoop(
     }
   }, [userId, player, loading, addLog, onProfileUpdate, onEffect, checkForGhosts]);
 
-  return { handleDescend, handleExplore, handleStatUpgrade, handleGoldUpgrade, handleBankTransaction, logs, loading, canRetrieve, setCanRetrieve, addLog, setGraveDepth };
+  // Resolve boss fight (called from CombatModal)
+  const resolveBossFight = useCallback(async (result: 'victory' | 'defeat', finalPlayerHp: number) => {
+    if (!userId || !player || !activeBoss) return;
+
+    setLoading(true);
+    try {
+      const goldMult = 1 + ((player.aether || 0) * 0.05);
+      
+      if (result === 'victory') {
+        const baseGoldReward = activeBoss.gold_reward;
+        const goldReward = Math.floor(baseGoldReward * goldMult);
+        const xpReward = activeBoss.xp_reward;
+        
+        const updates = {
+          gold: (player.gold || 0) + goldReward,
+          xp: (player.xp || 0) + xpReward,
+          health: finalPlayerHp
+        };
+        
+        const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
+        if (!error) {
+          onProfileUpdate({ ...player, ...updates });
+          addLog(`Boss Defeated! +${goldReward} Gold, +${xpReward} XP`);
+          onEffect('gold', goldReward);
+          onEffect('xp', xpReward);
+        }
+      } else {
+        // Defeat - trigger death logic
+        const currentDepth = player.depth || 0;
+        const currentGold = player.gold || 0;
+
+        // Fetch ALL items (equipped AND unequipped)
+        const { data: allItems } = await supabase
+          .from('inventory')
+          .select('*')
+          .eq('user_id', userId);
+
+        // Serialize items to JSON
+        const itemsJson = (allItems || []).map(item => ({
+          item_id: item.item_id,
+          is_equipped: item.is_equipped,
+          stats_override: item.stats_override,
+          name_override: item.name_override,
+          slot: item.slot
+        }));
+
+        // Delete Old Grave
+        await supabase.from('graves').delete().eq('user_id', userId);
+
+        // Create New Grave
+        const safeItemsJson = Array.isArray(itemsJson) ? itemsJson : [];
+        const safeDepth = currentDepth ?? 0;
+        const safeGold = currentGold ?? 0;
+
+        const graveData = {
+          user_id: userId,
+          depth: safeDepth,
+          gold_lost: safeGold,
+          items_json: safeItemsJson
+        };
+
+        await supabase.from('graves').insert(graveData);
+
+        // Wipe inventory
+        await supabase.from('inventory').delete().eq('user_id', userId);
+
+        // Find Rusty Shiv
+        const { data: rustyShiv } = await supabase
+          .from('items')
+          .select('id')
+          .eq('name', 'Rusty Shiv')
+          .single();
+
+        if (rustyShiv) {
+          await supabase.from('inventory').insert({
+            user_id: userId,
+            item_id: rustyShiv.id,
+            is_equipped: false
+          });
+        }
+
+        // Reset player
+        const maxHealth = player.max_health ?? player.max_stamina ?? 100;
+        const updates = {
+          depth: 0,
+          gold: 0,
+          current_stamina: player.max_stamina,
+          health: maxHealth
+        };
+
+        const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
+        if (!error) {
+          onProfileUpdate({ ...player, ...updates });
+          addLog(`YOU DIED. Your gear lies at ${currentDepth}m.`);
+        }
+      }
+    } catch (err) {
+      console.error('Error resolving boss fight:', err);
+      addLog('Something went wrong resolving the boss fight.');
+    } finally {
+      setActiveBoss(null);
+      setLoading(false);
+    }
+  }, [userId, player, activeBoss, onProfileUpdate, addLog, onEffect]);
+
+  return { 
+    handleDescend, 
+    handleExplore, 
+    handleStatUpgrade, 
+    handleGoldUpgrade, 
+    handleBankTransaction, 
+    logs, 
+    loading, 
+    canRetrieve, 
+    setCanRetrieve, 
+    addLog, 
+    setGraveDepth,
+    activeBoss,
+    resolveBossFight
+  };
 }

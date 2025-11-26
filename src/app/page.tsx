@@ -6,10 +6,11 @@ import StatsDisplay from '@/components/StatsDisplay';
 import GameLog from '@/components/GameLog';
 import Town from '@/components/Town';
 import InventoryModal from '@/components/InventoryModal';
+import CombatModal from '@/components/CombatModal';
 import AdminPanel from '@/components/AdminPanel';
 import BiomeBackground from '@/components/BiomeBackground';
 import { supabase } from '@/lib/supabase';
-import type { PlayerProfile } from '@/types';
+import type { PlayerProfile, InventoryItem } from '@/types';
 import { Shield, Sword } from 'lucide-react';
 
 type FloatingText = {
@@ -48,6 +49,7 @@ export default function Home() {
   const [damageFlash, setDamageFlash] = useState(false);
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [retrieving, setRetrieving] = useState(false);
+  const [bossInventory, setBossInventory] = useState<InventoryItem[]>([]);
 
   // --- 1. UPDATED HANDLE EFFECT ---
   const handleEffect = useCallback((type: 'damage' | 'gold' | 'xp' | 'item' | 'ghost', value?: number) => {
@@ -85,7 +87,7 @@ export default function Home() {
     }
   }, []);
 
-  const { handleDescend, handleExplore, handleStatUpgrade, handleGoldUpgrade, handleBankTransaction, logs, loading: loopLoading, canRetrieve, setCanRetrieve, addLog, setGraveDepth } = useGameLoop(
+  const { handleDescend, handleExplore, handleStatUpgrade, handleGoldUpgrade, handleBankTransaction, logs, loading: loopLoading, canRetrieve, setCanRetrieve, addLog, setGraveDepth, activeBoss, resolveBossFight } = useGameLoop(
     userId,
     player, 
     (p) => setPlayer(p), 
@@ -197,6 +199,49 @@ export default function Home() {
       loadPlayerAndStats(userId);
     }
   }, [isInventoryOpen, loadPlayerAndStats, userId]);
+
+  // Load inventory when boss encounter starts
+  useEffect(() => {
+    const loadBossInventory = async () => {
+      if (!userId || !activeBoss) return;
+      
+      const { data, error } = await supabase
+        .from('inventory')
+        .select('*, item:items(*)')
+        .eq('user_id', userId)
+        .order('is_equipped', { ascending: false });
+      
+      if (!error && data) {
+        setBossInventory(data as InventoryItem[]);
+      }
+    };
+    
+    loadBossInventory();
+  }, [userId, activeBoss]);
+
+  // Handle boss victory
+  const handleBossVictory = useCallback(async (finalHp: number) => {
+    if (!player || !activeBoss) return;
+    
+    await resolveBossFight('victory', finalHp);
+    
+    // Reload player stats
+    if (userId) {
+      loadPlayerAndStats(userId);
+    }
+  }, [player, activeBoss, resolveBossFight, userId, loadPlayerAndStats]);
+
+  // Handle boss defeat
+  const handleBossDefeat = useCallback(async () => {
+    if (!player || !activeBoss) return;
+    
+    await resolveBossFight('defeat', 0);
+    
+    // Reload player stats
+    if (userId) {
+      loadPlayerAndStats(userId);
+    }
+  }, [player, activeBoss, resolveBossFight, userId, loadPlayerAndStats]);
 
   // Handle grave retrieval
   const handleRetrieveGrave = useCallback(async () => {
@@ -446,6 +491,16 @@ export default function Home() {
         isOpen={isInventoryOpen}
         onClose={() => setIsInventoryOpen(false)}
       />
+
+      {activeBoss && player && (
+        <CombatModal
+          player={player}
+          monster={activeBoss}
+          onVictory={handleBossVictory}
+          onDefeat={handleBossDefeat}
+          inventory={bossInventory}
+        />
+      )}
 
       <footer className="relative z-50 p-4 border-t border-zinc-800 bg-zinc-900 grid grid-cols-3 gap-2">
         <button 
