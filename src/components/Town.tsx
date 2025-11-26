@@ -257,40 +257,42 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
 
   return (
     <div className="fixed inset-0 bg-zinc-950/95 z-40 flex items-center justify-center p-4 animate-in fade-in duration-300">
-      <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col p-6" style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6 border-b border-zinc-800 pb-4">
-        <div className="flex items-center gap-3">
-          <Home className="text-yellow-500" size={24} />
-          <h2 className="text-2xl font-bold text-zinc-100">
-            {view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : 'Combat Trainer'}
-          </h2>
+      <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col" style={{ maxHeight: '90vh', height: '90vh', display: 'flex', flexDirection: 'column' }}>
+      
+      {/* Scrollable content area */}
+      <div className="flex-1 overflow-y-auto px-6 pt-6 min-h-0" style={{ WebkitOverflowScrolling: 'touch' }}>
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6 border-b border-zinc-800 pb-4">
+          <div className="flex items-center gap-3">
+            <Home className="text-yellow-500" size={24} />
+            <h2 className="text-2xl font-bold text-zinc-100">
+              {view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : 'Combat Trainer'}
+            </h2>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
+            <X size={24} />
+          </button>
         </div>
-        <button onClick={onClose} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
-          <X size={24} />
-        </button>
-      </div>
 
-      {/* Gold Display */}
-      <div className="flex justify-center mb-6">
-        <div className="bg-zinc-900 border border-zinc-800 px-6 py-2 rounded-full flex items-center gap-2">
-          <span className="text-zinc-500 text-xs font-bold uppercase tracking-wider">Balance</span>
-          <span className="text-xl font-bold text-yellow-500 flex items-center gap-1">
-            {player.gold} <Coins size={16} />
-          </span>
+        {/* Gold Display */}
+        <div className="flex justify-center mb-6">
+          <div className="bg-zinc-900 border border-zinc-800 px-6 py-2 rounded-full flex items-center gap-2">
+            <span className="text-zinc-500 text-xs font-bold uppercase tracking-wider">Balance</span>
+            <span className="text-xl font-bold text-yellow-500 flex items-center gap-1">
+              {player.gold} <Coins size={16} />
+            </span>
+          </div>
         </div>
-      </div>
 
-      {message && (
-        <div className="bg-zinc-900 px-4 py-2 rounded text-zinc-300 border border-zinc-700 text-center mb-4 text-sm animate-pulse">
-          {message}
-        </div>
-      )}
+        {message && (
+          <div className="bg-zinc-900 px-4 py-2 rounded text-zinc-300 border border-zinc-700 text-center mb-4 text-sm animate-pulse">
+            {message}
+          </div>
+        )}
 
-      {/* --- VIEW: MAIN MENU --- */}
-      {view === 'main' && (
-        <div className="flex-1 flex flex-col gap-4 min-h-0">
+        {/* --- VIEW: MAIN MENU --- */}
+        {view === 'main' && (
+          <div className="flex flex-col gap-4 pb-4">
           {player.depth > 0 && (
             <button
               onClick={handleAscend}
@@ -363,9 +365,9 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
         </div>
       )}
 
-      {/* --- VIEW: MERCHANT --- */}
-      {view === 'merchant' && (
-        <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-2 min-h-0 pb-32">
+        {/* --- VIEW: MERCHANT --- */}
+        {view === 'merchant' && (
+          <div className="flex flex-col gap-2 pb-4 pr-2">
           {commonCount > 0 && (
             <button
               onClick={handleBulkSell}
@@ -404,9 +406,9 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
         </div>
       )}
 
-      {/* --- VIEW: FORGE --- */}
-      {view === 'forge' && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-6 min-h-0">
+        {/* --- VIEW: FORGE --- */}
+        {view === 'forge' && (
+          <div className="flex flex-col items-center justify-center gap-6 pb-4">
           <div className="text-center space-y-2">
             <Anvil size={48} className="text-zinc-700 mx-auto" />
             <h3 className="text-xl font-bold text-zinc-300">Blacksmith&apos;s Forge</h3>
@@ -431,9 +433,9 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
         </div>
       )}
 
-      {/* --- VIEW: TRAINER --- */}
-      {view === 'trainer' && (
-        <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto pr-2 pb-32">
+        {/* --- VIEW: TRAINER --- */}
+        {view === 'trainer' && (
+          <div className="flex flex-col gap-4 pb-4 pr-2">
           <div className="text-center space-y-2 mb-4">
             <Swords size={48} className="text-purple-500 mx-auto" />
             <h3 className="text-xl font-bold text-zinc-300">Combat Trainer</h3>
@@ -510,9 +512,11 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade }:
             })}
           </div>
         </div>
-      )}
+        )}
+      </div>
 
-      <div className="mt-auto pt-6 border-t border-zinc-800 pb-2 shrink-0">
+      {/* Button container - fixed at bottom */}
+      <div className="flex-shrink-0 border-t border-zinc-800 bg-zinc-950 px-6 pt-4" style={{ paddingBottom: 'max(1rem, calc(1rem + env(safe-area-inset-bottom)))' }}>
         {view !== 'main' ? (
           <button 
             onClick={() => setView('main')} 
