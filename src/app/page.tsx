@@ -10,8 +10,6 @@ import { supabase } from '@/lib/supabase';
 import type { PlayerProfile } from '@/types';
 import { Shield, Sword } from 'lucide-react';
 
-const HARDCODED_USER_ID = '123e4567-e89b-12d3-a456-426614174000';
-
 type FloatingText = {
   id: number;
   text: string;
@@ -21,6 +19,7 @@ type FloatingText = {
 };
 
 export default function Home() {
+  const [userId, setUserId] = useState<string | null>(null);
   const [player, setPlayer] = useState<PlayerProfile | null>(null);
   const [derivedStats, setDerivedStats] = useState({ attack: 0, defense: 0 });
   
@@ -66,34 +65,160 @@ export default function Home() {
   }, []);
 
   const { handleDescend, handleStatUpgrade, handleGoldUpgrade, logs, loading: loopLoading } = useGameLoop(
+    userId,
     player, 
     (p) => setPlayer(p), 
     handleEffect 
   );
 
-  const loadPlayerAndStats = useCallback(async () => {
-    try {
-      const { data: profile } = await supabase.from('profiles').select('*').eq('id', HARDCODED_USER_ID).single();
-      const { data: gear } = await supabase.from('inventory').select('*, item:items(*)').eq('user_id', HARDCODED_USER_ID).eq('is_equipped', true);
+  // Load authenticated user ID (if any)
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const { data } = await supabase.auth.getUser();
+        if (!data.user) {
+          // No active auth session; leave userId as null
+          setUserId(null);
+          return;
+        }
+        setUserId(data.user.id);
+      } catch (error) {
+        console.error('Error fetching auth user:', error);
+        setUserId(null);
+      }
+    };
 
-      let bonusAttack = 0, bonusDefense = 0;
+    loadUser();
+  }, []);
+
+  // Load existing anonymous ID from localStorage (if any)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem('deep_anon_user_id');
+    if (stored && !userId) {
+      setUserId(stored);
+    }
+  }, [userId]);
+
+  // Anonymous "login" for local testing – generates a random per-browser ID
+  const handleAnonLogin = useCallback(() => {
+    if (typeof window === 'undefined') return;
+
+    const existing = window.localStorage.getItem('deep_anon_user_id');
+    if (existing) {
+      setUserId(existing);
+      return;
+    }
+
+    const newId =
+      (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+        ? crypto.randomUUID()
+        : `anon-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+
+    window.localStorage.setItem('deep_anon_user_id', newId);
+    setUserId(newId);
+  }, []);
+
+  const loadPlayerAndStats = useCallback(async () => {
+    // If userId hasn't been loaded yet (or no user is logged in), just skip.
+    if (!userId) {
+      return;
+    }
+
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      let finalProfile = profile;
+
+      // If no profile exists yet for this user, create one with sane defaults
+      if (error) {
+        // PGRST116: Results contain 0 rows (no profile yet)
+        if ((error as any).code === 'PGRST116') {
+          const { data: newProfile, error: insertError } = await supabase
+            .from('profiles')
+            .insert({
+              id: userId,
+              username: `Diver-${userId.slice(0, 8)}`,
+              depth: 0,
+              gold: 0,
+              vigor: 5,
+              precision: 5,
+              aether: 5,
+              current_stamina: 20,
+              max_stamina: 20,
+              xp: 0,
+              level: 1,
+              stat_points: 0,
+              health: 100,
+              max_health: 100,
+            })
+            .select('*')
+            .single();
+
+          if (insertError || !newProfile) {
+            // In dev, avoid triggering Next.js error overlay for recoverable issues.
+            console.warn('Failed to create profile for user', insertError || newProfile);
+            return;
+          }
+
+          finalProfile = newProfile as PlayerProfile;
+        } else {
+          console.error('Error loading profile:', error);
+          return;
+        }
+      }
+
+      const { data: gear } = await supabase
+        .from('inventory')
+        .select('*, item:items(*)')
+        .eq('user_id', userId)
+        .eq('is_equipped', true);
+
+      let bonusAttack = 0,
+        bonusDefense = 0;
       gear?.forEach((entry: any) => {
         bonusAttack += (entry.item.stats?.damage || 0);
         bonusDefense += (entry.item.stats?.defense || 0);
       });
 
-      setPlayer(profile);
+      setPlayer(finalProfile as PlayerProfile);
       setDerivedStats({
-        attack: (profile.precision || 0) + bonusAttack,
-        defense: (profile.vigor || 0) + bonusDefense,
+        attack: ((finalProfile as PlayerProfile).precision || 0) + bonusAttack,
+        defense: ((finalProfile as PlayerProfile).vigor || 0) + bonusDefense,
       });
-
-    } catch (error) { console.error(error); }
-  }, []);
+    } catch (error) {
+      console.error(error);
+    }
+  }, [userId]);
 
   useEffect(() => { loadPlayerAndStats(); }, [loadPlayerAndStats]);
   useEffect(() => { if (!isInventoryOpen) loadPlayerAndStats(); }, [isInventoryOpen, loadPlayerAndStats]);
 
+  if (!userId) {
+    return (
+      <main className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100 font-mono max-w-md mx-auto border-x border-zinc-800 relative overflow-hidden">
+        <div className="h-full flex flex-col items-center justify-center gap-4 p-6 text-center">
+          <h1 className="text-xl font-bold text-zinc-100">The Deep</h1>
+          <p className="text-sm text-zinc-400 max-w-xs">
+            No account connected. For development, you can create an anonymous diver profile on this browser.
+          </p>
+          <button
+            onClick={handleAnonLogin}
+            className="px-4 py-2 rounded bg-zinc-100 text-black font-bold hover:bg-white transition-colors"
+          >
+            Log in anonymously
+          </button>
+          <p className="text-xs text-zinc-500 max-w-xs">
+            This generates a random ID stored in your browser only. Each browser/profile will get its own separate save.
+          </p>
+        </div>
+      </main>
+    );
+  }
   if (!player) return <div className="h-screen flex items-center justify-center text-zinc-500">Loading Abyss...</div>;
 
   return (
@@ -132,14 +257,14 @@ export default function Home() {
         <GameLog logs={logs} />
         {isTownOpen && (
           <Town
-            userId={HARDCODED_USER_ID}
+            userId={userId}
             player={player}
             onClose={() => setIsTownOpen(false)}
             onRest={(u) => setPlayer({ ...player, ...u })}
           />
         )}
         <InventoryModal
-          userId={HARDCODED_USER_ID}
+          userId={userId}
           isOpen={isInventoryOpen}
           onClose={() => setIsInventoryOpen(false)}
         />

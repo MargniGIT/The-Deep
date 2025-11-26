@@ -1,8 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { PlayerProfile } from '@/types';
-
-const HARDCODED_USER_ID = '123e4567-e89b-12d3-a456-426614174000';
 const GOLD_UPGRADE_COST = 200;
 const MAX_LEVEL = 50;
 
@@ -55,6 +53,7 @@ function getAtmosphereLog(depth: number) {
 }
 
 export function useGameLoop(
+  userId: string | null,
   player: PlayerProfile | null,
   onProfileUpdate: (newProfile: PlayerProfile) => void,
   onEffect: (type: 'damage' | 'gold' | 'xp' | 'item', value?: number) => void
@@ -67,20 +66,28 @@ export function useGameLoop(
   }, []);
 
   const handleStatUpgrade = useCallback(async (statName: 'vigor' | 'precision' | 'aether') => {
+    if (!userId) {
+      console.error('No user ID found');
+      return;
+    }
     if (!player || player.stat_points <= 0) return;
     const newStats = {
       [statName]: (player[statName] || 0) + 1,
       stat_points: player.stat_points - 1,
       max_stamina: statName === 'vigor' ? player.max_stamina + 5 : player.max_stamina
     };
-    const { error } = await supabase.from('profiles').update(newStats).eq('id', HARDCODED_USER_ID);
+    const { error } = await supabase.from('profiles').update(newStats).eq('id', userId);
     if (!error) {
       onProfileUpdate({ ...player, ...newStats });
       addLog(`You increased your ${statName.toUpperCase()}!`);
     }
-  }, [player, onProfileUpdate, addLog]);
+  }, [userId, player, onProfileUpdate, addLog]);
 
   const handleGoldUpgrade = useCallback(async (statName: 'vigor' | 'precision' | 'aether') => {
+    if (!userId) {
+      console.error('No user ID found');
+      return;
+    }
     if (!player) return;
 
     const currentGold = player.gold || 0;
@@ -95,15 +102,19 @@ export function useGameLoop(
     const { error } = await supabase
       .from('profiles')
       .update(newStats)
-      .eq('id', HARDCODED_USER_ID);
+      .eq('id', userId);
 
     if (!error) {
       onProfileUpdate({ ...player, ...newStats });
       addLog(`You invested ${GOLD_UPGRADE_COST} gold to increase your ${statName.toUpperCase()}!`);
     }
-  }, [player, onProfileUpdate, addLog]);
+  }, [userId, player, onProfileUpdate, addLog]);
 
   const handleDescend = useCallback(async () => {
+    if (!userId) {
+      console.error('No user ID found');
+      return;
+    }
     if (!player || loading) return;
     if (player.current_stamina <= 0) {
       addLog("You are too exhausted to continue.");
@@ -183,7 +194,7 @@ export function useGameLoop(
             fullName = `${prefix.name} ${randomItem.name} ${suffix.name}`;
           }
           const { error } = await supabase.from('inventory').insert({
-            user_id: HARDCODED_USER_ID,
+            user_id: userId,
             item_id: randomItem.id,
             is_equipped: false,
             slot: randomItem.valid_slot || null,
@@ -215,7 +226,7 @@ export function useGameLoop(
           logMessage = "You tripped on a rock! (-2 HP)";
           onEffect('damage', 2);
         } else {
-          const { data: gear } = await supabase.from('inventory').select('*, item:items(*)').eq('user_id', HARDCODED_USER_ID).eq('is_equipped', true);
+          const { data: gear } = await supabase.from('inventory').select('*, item:items(*)').eq('user_id', userId).eq('is_equipped', true);
           let bonusAtk = 0, bonusDef = 0;
           gear?.forEach((g: any) => { bonusAtk += g.item.stats?.damage || 0; bonusDef += g.item.stats?.defense || 0; });
 
@@ -257,7 +268,7 @@ export function useGameLoop(
       }
 
       const updates = { depth: newDepth, current_stamina: newStamina, gold: newGold, vigor: newVigor, xp: newXP, level: newLevel, stat_points: newStatPoints };
-      const { error } = await supabase.from('profiles').update(updates).eq('id', HARDCODED_USER_ID);
+      const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
       if (error) throw error;
 
       addLog(logMessage);
@@ -265,7 +276,7 @@ export function useGameLoop(
 
     } catch (err) { console.error(err); addLog("Something went wrong."); }
     finally { setLoading(false); }
-  }, [player, loading, addLog, onProfileUpdate, onEffect]);
+  }, [userId, player, loading, addLog, onProfileUpdate, onEffect]);
 
   return { handleDescend, handleStatUpgrade, handleGoldUpgrade, logs, loading };
 }
