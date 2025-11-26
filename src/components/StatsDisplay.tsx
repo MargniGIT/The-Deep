@@ -1,5 +1,6 @@
 import type { PlayerProfile } from '@/types';
-import { Heart, Zap, Coins, ArrowDown, Plus, Star } from 'lucide-react';
+import { Coins, ArrowDown, Plus } from 'lucide-react';
+import { GiHearts, GiLightningTrio, GiStarsStack } from 'react-icons/gi';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
 
@@ -83,7 +84,7 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
         {/* HP */}
         <div className="space-y-1">
           <div className="flex justify-between text-[10px] font-bold px-1 uppercase tracking-wider text-red-400">
-            <span className="flex items-center gap-1"><Heart size={10} fill="currentColor" /> Health</span>
+            <span className="flex items-center gap-1"><GiHearts size={10} /> Health</span>
             <span className="text-zinc-500">{currentHealth} / {maxHealth}</span>
           </div>
           <div className="h-2 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800/50">
@@ -94,7 +95,7 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
         {/* Energy */}
         <div className="space-y-1">
           <div className="flex justify-between text-[10px] font-bold px-1 uppercase tracking-wider text-emerald-400">
-            <span className="flex items-center gap-1"><Zap size={10} fill="currentColor" /> Energy</span>
+            <span className="flex items-center gap-1"><GiLightningTrio size={10} /> Energy</span>
             <span className="text-zinc-500">{profile.current_stamina} / {profile.max_stamina}</span>
           </div>
           <div className="h-2 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800/50">
@@ -105,7 +106,7 @@ export default function StatsDisplay({ profile, onUpgrade }: StatsProps) {
         {/* XP */}
         <div className="space-y-1 pt-1 border-t border-zinc-800/50">
           <div className="flex justify-between text-[10px] font-bold px-1 uppercase tracking-wider text-blue-400">
-            <span className="flex items-center gap-1"><Star size={10} fill="currentColor" /> XP</span>
+            <span className="flex items-center gap-1"><GiStarsStack size={10} /> XP</span>
             <span className="text-zinc-500">{Math.floor(xpPercent)}%</span>
           </div>
           <div className="h-1 bg-zinc-950 rounded-full overflow-hidden">

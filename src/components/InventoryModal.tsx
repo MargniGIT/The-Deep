@@ -125,18 +125,6 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
 
                     {/* Item Details */}
                     <div className="flex-1 min-w-0 relative">
-                      {/* Dark Overlay when inspecting */}
-                      {inspectId === entry.id && (
-                        <div 
-                          onClick={() => setInspectId(null)}
-                          className="absolute inset-0 bg-black/90 backdrop-blur-sm rounded z-10 flex items-center justify-center p-4 animate-in fade-in duration-200 cursor-pointer"
-                        >
-                          <p className="text-zinc-400 italic text-sm text-center">
-                            {entry.item.description || 'No description'}
-                          </p>
-                        </div>
-                      )}
-
                       <div className="flex items-center gap-2 mb-1 min-w-0">
                         <span className={`font-bold truncate text-sm flex-1 min-w-0 ${style.text}`}>
                           {entry.name_override || entry.item.name}
@@ -203,6 +191,36 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
                       >
                         SCRAP
                       </button>
+                    )}
+
+                    {/* Dark Overlay when inspecting */}
+                    {inspectId === entry.id && (
+                      <div 
+                        onClick={() => setInspectId(null)}
+                        className="absolute inset-0 bg-black/90 backdrop-blur-sm rounded z-10 flex items-center justify-center p-3 animate-in fade-in duration-200 cursor-pointer"
+                      >
+                        <div className="w-full max-w-full overflow-y-auto overflow-x-hidden max-h-full text-zinc-400 italic text-xs text-center">
+                          {(() => {
+                            const desc = entry.item.description || 'No description';
+                            if (!desc.includes('SET BONUS')) {
+                              return <p className="whitespace-pre-wrap break-words px-2">{desc}</p>;
+                            }
+                            // Parse and highlight SET BONUS sections
+                            const parts = desc.split(/(SET BONUS[^\n]*)/gi);
+                            return (
+                              <p className="whitespace-pre-wrap break-words px-2">
+                                {parts.map((part, idx) => 
+                                  part.toUpperCase().includes('SET BONUS') ? (
+                                    <span key={idx} className="text-emerald-400">{part}</span>
+                                  ) : (
+                                    <span key={idx}>{part}</span>
+                                  )
+                                )}
+                              </p>
+                            );
+                          })()}
+                        </div>
+                      </div>
                     )}
                   </div>
                 );

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Home, Bed, ArrowLeft, Store, Coins, Trash2, Hammer, Anvil, Swords, ArrowUp, Trophy, Pencil, Check, ChevronsDown, Lock } from 'lucide-react';
+import { X, Home, ArrowLeft, Coins, Trash2, Hammer, Swords, ArrowUp, Check } from 'lucide-react';
+import { GiCampingTent, GiReceiveMoney, GiAnvilImpact, GiStrongbox, GiTrophyCup, GiElevator, GiScrollUnfurled } from 'react-icons/gi';
 import type { PlayerProfile, InventoryItem } from '@/types';
 import { supabase } from '@/lib/supabase';
 
@@ -558,7 +559,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                         className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-zinc-300 transition-colors"
                         title="Edit name"
                       >
-                        <Pencil size={14} />
+                        <GiScrollUnfurled size={14} />
                       </button>
                     </div>
                   )}
@@ -599,7 +600,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group disabled:opacity-50"
               >
                 <div className="bg-zinc-800 p-3 rounded text-blue-400 group-hover:text-blue-300">
-                  <Bed size={24} />
+                  <GiCampingTent size={24} />
                 </div>
                 <div className="flex-1">
                   <h3 className="font-bold text-lg">Rough Sleep</h3>
@@ -631,7 +632,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group disabled:opacity-50"
               >
                 <div className="bg-zinc-800 p-3 rounded text-blue-400 group-hover:text-blue-300">
-                  <Bed size={24} />
+                  <GiCampingTent size={24} />
                 </div>
                 <div className="flex-1">
                   <h3 className="font-bold text-lg">Rest & Recover</h3>
@@ -645,7 +646,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
                 <div className="bg-zinc-800 p-3 rounded text-green-400 group-hover:text-green-300">
-                  <Store size={24} />
+                  <GiReceiveMoney size={24} />
                 </div>
                 <div className="flex-1">
                   <h3 className="font-bold text-lg">Scrap Merchant</h3>
@@ -658,7 +659,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
                 <div className="bg-zinc-800 p-3 rounded text-red-500 group-hover:text-red-400">
-                  <Anvil size={24} />
+                  <GiAnvilImpact size={24} />
                 </div>
                 <div className="flex-1">
                   <h3 className="font-bold text-lg">The Forge</h3>
@@ -684,7 +685,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
                 <div className="bg-zinc-800 p-3 rounded text-cyan-500 group-hover:text-cyan-400">
-                  <ChevronsDown size={24} />
+                  <GiElevator size={24} />
                 </div>
                 <div className="flex-1">
                   <h3 className="font-bold text-lg">Abyssal Elevator</h3>
@@ -697,7 +698,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
                 <div className="bg-zinc-800 p-3 rounded text-amber-600 group-hover:text-amber-500">
-                  <Lock size={24} />
+                  <GiStrongbox size={24} />
                 </div>
                 <div className="flex-1">
                   <h3 className="font-bold text-lg">Iron Vault</h3>
@@ -710,7 +711,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
                 <div className="bg-zinc-800 p-3 rounded text-yellow-500 group-hover:text-yellow-400">
-                  <Trophy size={24} />
+                  <GiTrophyCup size={24} />
                 </div>
                 <div className="flex-1">
                   <h3 className="font-bold text-lg">Hall of Records</h3>
@@ -767,7 +768,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
         {view === 'forge' && !isCampsite && (
           <div className="flex flex-col gap-4 pb-4 pr-2">
           <div className="text-center space-y-2 mb-4">
-            <Anvil size={48} className="text-zinc-700 mx-auto" />
+            <GiAnvilImpact size={48} className="text-zinc-700 mx-auto" />
             <h3 className="text-xl font-bold text-zinc-300">Blacksmith&apos;s Forge</h3>
             <p className="text-zinc-500 text-sm max-w-xs mx-auto">
               Craft specific gear using recipes and materials.
@@ -916,7 +917,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
         {view === 'travel' && !isCampsite && (
           <div className="flex flex-col gap-4 pb-4 pr-2">
             <div className="text-center space-y-2 mb-4">
-              <ChevronsDown size={48} className="text-cyan-500 mx-auto" />
+              <GiElevator size={48} className="text-cyan-500 mx-auto" />
               <h3 className="text-xl font-bold text-zinc-300">Select Depth</h3>
               <p className="text-zinc-500 text-sm max-w-xs mx-auto">
                 Fast travel to unlocked checkpoints.
@@ -966,7 +967,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                             : 'bg-zinc-800 text-zinc-600 border border-zinc-700 opacity-50 cursor-not-allowed'
                         }`}
                       >
-                        <ChevronsDown size={14} />
+                        <GiElevator size={14} />
                         <span>WARP</span>
                       </button>
                     </div>
@@ -981,7 +982,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
         {view === 'vault' && !isCampsite && (
           <div className="flex flex-col gap-6 pb-4 pr-2">
             <div className="text-center space-y-2 mb-4">
-              <Lock size={48} className="text-amber-600 mx-auto" />
+              <GiStrongbox size={48} className="text-amber-600 mx-auto" />
               <h3 className="text-xl font-bold text-zinc-300">Iron Vault</h3>
               <p className="text-zinc-500 text-sm max-w-xs mx-auto">
                 Secure your gold. Vault storage persists after death.
@@ -1151,7 +1152,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
         {view === 'leaderboard' && (
           <div className="flex flex-col gap-4 pb-4 pr-2">
             <div className="text-center space-y-2 mb-4">
-              <Trophy size={48} className="text-yellow-500 mx-auto" />
+              <GiTrophyCup size={48} className="text-yellow-500 mx-auto" />
               <h3 className="text-xl font-bold text-zinc-300">Hall of Records</h3>
               <p className="text-zinc-500 text-sm max-w-xs mx-auto">
                 The deepest delvers who have ventured into the abyss.

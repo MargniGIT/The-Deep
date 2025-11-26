@@ -430,7 +430,7 @@ export default function Home() {
         console.error('Failed to check inventory:', invError);
       }
 
-      const INVENTORY_LIMIT = 30; // Default inventory limit
+      const INVENTORY_LIMIT = 60; // Default inventory limit
       const itemsJson = grave.items_json || [];
       const availableSlots = INVENTORY_LIMIT - (currentCount || 0);
 

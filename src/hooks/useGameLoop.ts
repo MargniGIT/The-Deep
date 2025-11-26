@@ -9,9 +9,13 @@ const getTrainingCost = (bought: number) => 100 * (bought + 1);
 // --- SET BONUSES ---
 const SET_BONUSES: Record<string, Record<number, Record<string, number>>> = {
   "Warden's Steel": {
-    2: { vigor: 10 },
-    3: { defense: 10 },
-    4: { aether: 20 }
+    2: { vigor: 15 },        // +75 Max HP
+    3: { defense: 15 },      // Shrug off heavy hits
+    4: { defense: 20 }       // Total Set Bonus: +35 Def, +15 Vigor
+  },
+  "Rat Hunter": {
+    2: { precision: 5 },     // Early damage boost
+    3: { gold: 25 }          // +25% Gold Find (Start your economy)
   }
 };
 
@@ -151,10 +155,32 @@ export function useGameLoop(
         // Trigger achievement callback
         onEffect('achievement', undefined, { title, description: desc });
       } else {
-        console.error('Error unlocking achievement:', error);
+        // Log detailed error information
+        const errorMessage = error.message || 'Unknown error';
+        const errorCode = error.code || 'NO_CODE';
+        const errorDetails = error.details || null;
+        const errorHint = error.hint || null;
+        
+        console.error('Error unlocking achievement:', {
+          achievement_id: id,
+          message: errorMessage,
+          code: errorCode,
+          details: errorDetails,
+          hint: errorHint,
+          fullError: error
+        });
       }
     } catch (err) {
-      console.error('Error unlocking achievement:', err);
+      // Log caught errors with more detail
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorStack = err instanceof Error ? err.stack : undefined;
+      
+      console.error('Error unlocking achievement (catch):', {
+        achievement_id: id,
+        message: errorMessage,
+        stack: errorStack,
+        error: err
+      });
     }
   }, [userId, achievements, onEffect]);
 
@@ -378,8 +404,48 @@ export function useGameLoop(
         unlockAchievement('deep_diver', 'Deep Diver', 'Reached a depth of 500 meters');
       }
 
-      // --- AETHER GOLD MULTIPLIER ---
-      const goldMult = 1 + ((player.aether || 0) * 0.05); // 5% bonus per Aether point
+      // --- CALCULATE SET BONUSES (needed for gold multiplier and combat) ---
+      const { data: gear } = await supabase.from('inventory').select('*, item:items(*)').eq('user_id', userId).eq('is_equipped', true);
+      
+      // Count items by set_name
+      const setCounts: Record<string, number> = {};
+      gear?.forEach((g: any) => {
+        const setName = g.item?.set_name;
+        if (setName) {
+          setCounts[setName] = (setCounts[setName] || 0) + 1;
+        }
+      });
+
+      // Apply set bonuses
+      let setBonusVigor = 0;
+      let setBonusDef = 0;
+      let setBonusAether = 0;
+      let setBonusPrecision = 0;
+      let setBonusGold = 0;
+      Object.entries(setCounts).forEach(([setName, count]) => {
+        const setBonus = SET_BONUSES[setName];
+        if (setBonus) {
+          // Find the highest bonus tier that applies (2, 3, or 4 pieces)
+          const applicableTiers = Object.keys(setBonus)
+            .map(Number)
+            .filter(tier => count >= tier)
+            .sort((a, b) => b - a); // Sort descending to get highest tier
+          
+          if (applicableTiers.length > 0) {
+            const highestTier = applicableTiers[0];
+            const bonuses = setBonus[highestTier];
+            if (bonuses.vigor) setBonusVigor += bonuses.vigor;
+            if (bonuses.defense) setBonusDef += bonuses.defense;
+            if (bonuses.aether) setBonusAether += bonuses.aether;
+            if (bonuses.precision) setBonusPrecision += bonuses.precision;
+            if (bonuses.gold) setBonusGold += bonuses.gold;
+          }
+        }
+      });
+
+      // --- AETHER GOLD MULTIPLIER (includes set bonus gold) ---
+      const baseGoldMult = 1 + ((player.aether || 0) * 0.05); // 5% bonus per Aether point
+      const goldMult = baseGoldMult * (1 + (setBonusGold / 100)); // Apply set bonus gold as percentage
 
       // --- GRAVE DISCOVERY CHECK ---
       if (graveDepth !== null && newDepth === graveDepth) {
@@ -433,7 +499,7 @@ export function useGameLoop(
           .select('*', { count: 'exact', head: true })
           .eq('user_id', userId);
 
-        const INVENTORY_LIMIT = 30;
+        const INVENTORY_LIMIT = 60;
         if ((currentInventoryCount || 0) >= INVENTORY_LIMIT) {
           logMessage = "Your inventory is full! You can't carry any more items.";
         } else {
@@ -478,7 +544,7 @@ export function useGameLoop(
           .select('*', { count: 'exact', head: true })
           .eq('user_id', userId);
 
-        const INVENTORY_LIMIT = 30;
+        const INVENTORY_LIMIT = 60;
         if ((currentInventoryCount || 0) >= INVENTORY_LIMIT) {
           logMessage = "Your inventory is full! You can't carry any more items.";
         } else {
@@ -570,7 +636,7 @@ export function useGameLoop(
           }
 
           // Regular monster combat (auto-resolve)
-          const { data: gear } = await supabase.from('inventory').select('*, item:items(*)').eq('user_id', userId).eq('is_equipped', true);
+          // Note: gear and set bonuses are already calculated above
           let bonusAtk = 0, bonusDef = 0;
           gear?.forEach((g: any) => { 
             const stats = g.stats_override || g.item?.stats || {};
@@ -578,41 +644,8 @@ export function useGameLoop(
             bonusDef += stats.defense || 0; 
           });
 
-          // --- SET BONUSES ---
-          // Count items by set_name
-          const setCounts: Record<string, number> = {};
-          gear?.forEach((g: any) => {
-            const setName = g.item?.set_name;
-            if (setName) {
-              setCounts[setName] = (setCounts[setName] || 0) + 1;
-            }
-          });
-
-          // Apply set bonuses
-          let setBonusVigor = 0;
-          let setBonusDef = 0;
-          let setBonusAether = 0;
-          Object.entries(setCounts).forEach(([setName, count]) => {
-            const setBonus = SET_BONUSES[setName];
-            if (setBonus) {
-              // Find the highest bonus tier that applies (2, 3, or 4 pieces)
-              const applicableTiers = Object.keys(setBonus)
-                .map(Number)
-                .filter(tier => count >= tier)
-                .sort((a, b) => b - a); // Sort descending to get highest tier
-              
-              if (applicableTiers.length > 0) {
-                const highestTier = applicableTiers[0];
-                const bonuses = setBonus[highestTier];
-                if (bonuses.vigor) setBonusVigor += bonuses.vigor;
-                if (bonuses.defense) setBonusDef += bonuses.defense;
-                if (bonuses.aether) setBonusAether += bonuses.aether;
-              }
-            }
-          });
-
           // Calculate player total stats safely (including set bonuses)
-          const playerTotalAtk = (player.precision || 0) + bonusAtk;
+          const playerTotalAtk = (player.precision || 0) + bonusAtk + setBonusPrecision;
           // Defense should only come from equipment, not from vigor (health)
           const playerTotalDef = bonusDef + setBonusDef;
           // Apply vigor bonus to max_stamina (for health calculations)
@@ -899,8 +932,48 @@ export function useGameLoop(
       let newXP = player.xp || 0;
       let logMessage = "";
 
-      // --- AETHER GOLD MULTIPLIER ---
-      const goldMult = 1 + ((player.aether || 0) * 0.05); // 5% bonus per Aether point
+      // --- CALCULATE SET BONUSES (needed for gold multiplier and combat) ---
+      const { data: gear } = await supabase.from('inventory').select('*, item:items(*)').eq('user_id', userId).eq('is_equipped', true);
+      
+      // Count items by set_name
+      const setCounts: Record<string, number> = {};
+      gear?.forEach((g: any) => {
+        const setName = g.item?.set_name;
+        if (setName) {
+          setCounts[setName] = (setCounts[setName] || 0) + 1;
+        }
+      });
+
+      // Apply set bonuses
+      let setBonusVigor = 0;
+      let setBonusDef = 0;
+      let setBonusAether = 0;
+      let setBonusPrecision = 0;
+      let setBonusGold = 0;
+      Object.entries(setCounts).forEach(([setName, count]) => {
+        const setBonus = SET_BONUSES[setName];
+        if (setBonus) {
+          // Find the highest bonus tier that applies (2, 3, or 4 pieces)
+          const applicableTiers = Object.keys(setBonus)
+            .map(Number)
+            .filter(tier => count >= tier)
+            .sort((a, b) => b - a); // Sort descending to get highest tier
+          
+          if (applicableTiers.length > 0) {
+            const highestTier = applicableTiers[0];
+            const bonuses = setBonus[highestTier];
+            if (bonuses.vigor) setBonusVigor += bonuses.vigor;
+            if (bonuses.defense) setBonusDef += bonuses.defense;
+            if (bonuses.aether) setBonusAether += bonuses.aether;
+            if (bonuses.precision) setBonusPrecision += bonuses.precision;
+            if (bonuses.gold) setBonusGold += bonuses.gold;
+          }
+        }
+      });
+
+      // --- AETHER GOLD MULTIPLIER (includes set bonus gold) ---
+      const baseGoldMult = 1 + ((player.aether || 0) * 0.05); // 5% bonus per Aether point
+      const goldMult = baseGoldMult * (1 + (setBonusGold / 100)); // Apply set bonus gold as percentage
 
       // --- GHOST CHECK ---
       await checkForGhosts(currentDepth);
@@ -915,7 +988,7 @@ export function useGameLoop(
           .select('*', { count: 'exact', head: true })
           .eq('user_id', userId);
 
-        const INVENTORY_LIMIT = 30;
+        const INVENTORY_LIMIT = 60;
         if ((currentInventoryCount || 0) >= INVENTORY_LIMIT) {
           logMessage = "Your inventory is full! You can't carry any more items.";
         } else {
@@ -989,12 +1062,7 @@ export function useGameLoop(
           logMessage = "You tripped on a rock! (-2 damage)";
           onEffect('damage', 2);
         } else {
-          const { data: gear } = await supabase
-            .from('inventory')
-            .select('*, item:items(*)')
-            .eq('user_id', userId)
-            .eq('is_equipped', true);
-          
+          // Note: gear and set bonuses are already calculated above
           let bonusAtk = 0, bonusDef = 0;
           gear?.forEach((g: any) => { 
             const stats = g.stats_override || g.item?.stats || {};
@@ -1002,40 +1070,7 @@ export function useGameLoop(
             bonusDef += stats.defense || 0; 
           });
 
-          // --- SET BONUSES ---
-          // Count items by set_name
-          const setCounts: Record<string, number> = {};
-          gear?.forEach((g: any) => {
-            const setName = g.item?.set_name;
-            if (setName) {
-              setCounts[setName] = (setCounts[setName] || 0) + 1;
-            }
-          });
-
-          // Apply set bonuses
-          let setBonusVigor = 0;
-          let setBonusDef = 0;
-          let setBonusAether = 0;
-          Object.entries(setCounts).forEach(([setName, count]) => {
-            const setBonus = SET_BONUSES[setName];
-            if (setBonus) {
-              // Find the highest bonus tier that applies (2, 3, or 4 pieces)
-              const applicableTiers = Object.keys(setBonus)
-                .map(Number)
-                .filter(tier => count >= tier)
-                .sort((a, b) => b - a); // Sort descending to get highest tier
-              
-              if (applicableTiers.length > 0) {
-                const highestTier = applicableTiers[0];
-                const bonuses = setBonus[highestTier];
-                if (bonuses.vigor) setBonusVigor += bonuses.vigor;
-                if (bonuses.defense) setBonusDef += bonuses.defense;
-                if (bonuses.aether) setBonusAether += bonuses.aether;
-              }
-            }
-          });
-
-          const playerTotalAtk = (player.precision || 0) + bonusAtk;
+          const playerTotalAtk = (player.precision || 0) + bonusAtk + setBonusPrecision;
           // Defense should only come from equipment, not from vigor (health)
           const playerTotalDef = bonusDef + setBonusDef;
           // Note: setBonusVigor and setBonusAether are calculated but not directly used in explore combat
@@ -1115,7 +1150,40 @@ export function useGameLoop(
 
     setLoading(true);
     try {
-      const goldMult = 1 + ((player.aether || 0) * 0.05);
+      // --- CALCULATE SET BONUSES (needed for gold multiplier) ---
+      const { data: gear } = await supabase.from('inventory').select('*, item:items(*)').eq('user_id', userId).eq('is_equipped', true);
+      
+      // Count items by set_name
+      const setCounts: Record<string, number> = {};
+      gear?.forEach((g: any) => {
+        const setName = g.item?.set_name;
+        if (setName) {
+          setCounts[setName] = (setCounts[setName] || 0) + 1;
+        }
+      });
+
+      // Apply set bonuses (only need gold for boss rewards)
+      let setBonusGold = 0;
+      Object.entries(setCounts).forEach(([setName, count]) => {
+        const setBonus = SET_BONUSES[setName];
+        if (setBonus) {
+          // Find the highest bonus tier that applies (2, 3, or 4 pieces)
+          const applicableTiers = Object.keys(setBonus)
+            .map(Number)
+            .filter(tier => count >= tier)
+            .sort((a, b) => b - a); // Sort descending to get highest tier
+          
+          if (applicableTiers.length > 0) {
+            const highestTier = applicableTiers[0];
+            const bonuses = setBonus[highestTier];
+            if (bonuses.gold) setBonusGold += bonuses.gold;
+          }
+        }
+      });
+
+      // --- AETHER GOLD MULTIPLIER (includes set bonus gold) ---
+      const baseGoldMult = 1 + ((player.aether || 0) * 0.05); // 5% bonus per Aether point
+      const goldMult = baseGoldMult * (1 + (setBonusGold / 100)); // Apply set bonus gold as percentage
       
       if (result === 'victory') {
         const baseGoldReward = activeBoss.gold_reward;
@@ -1154,7 +1222,7 @@ export function useGameLoop(
                 .select('*', { count: 'exact', head: true })
                 .eq('user_id', userId);
               
-              const INVENTORY_LIMIT = 30;
+              const INVENTORY_LIMIT = 60;
               if ((currentInventoryCount || 0) < INVENTORY_LIMIT) {
                 const { error: insertError } = await supabase
                   .from('inventory')
