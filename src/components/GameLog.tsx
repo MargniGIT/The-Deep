@@ -1,10 +1,11 @@
 import { Terminal, Volume2, VolumeX } from 'lucide-react';
+import type { SfxName } from '@/hooks/useAudio';
 
 interface GameLogProps {
   logs: string[];
   isMuted?: boolean;
   onToggleMute?: () => void;
-  onPlaySfx?: (name: string) => void;
+  onPlaySfx?: (name: SfxName) => void;
   onPlayHover?: () => void;
 }
 

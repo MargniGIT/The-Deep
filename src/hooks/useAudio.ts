@@ -11,7 +11,7 @@ import { Howl } from 'howler';
 // - legendary_loot.mp3 (or .wav)
 // - ambience_shallows.mp3 (or .wav)
 
-type SfxName = 'ui_click' | 'ui_hover' | 'step' | 'gold' | 'hit' | 'rare_loot' | 'legendary_loot';
+export type SfxName = 'ui_click' | 'ui_hover' | 'step' | 'gold' | 'hit' | 'rare_loot' | 'legendary_loot';
 type AmbienceName = 'ambience_shallows';
 
 export function useAudio() {
