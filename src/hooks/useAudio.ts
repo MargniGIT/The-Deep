@@ -263,6 +263,42 @@ export function useAudio() {
       return;
     }
 
+    // Ensure sound is loaded before playing
+    const state = targetSound.state();
+    if (state === 'unloaded') {
+      targetSound.load();
+      // Wait for load then play
+      targetSound.once('load', () => {
+        if (isMuted) return; // Check mute again after load
+        
+        // Fade out current ambience if playing
+        if (currentAmbienceRef.current && currentAmbienceRef.current.playing()) {
+          currentAmbienceRef.current.fade(
+            currentAmbienceRef.current.volume(),
+            0,
+            1000,
+          );
+          currentAmbienceRef.current.once('fade', () => {
+            if (currentAmbienceRef.current) {
+              currentAmbienceRef.current.stop();
+            }
+          });
+        }
+
+        // Fade in new ambience
+        targetSound.volume(0);
+        targetSound.play();
+        targetSound.fade(0, 0.3, 1000);
+        currentAmbienceRef.current = targetSound;
+      });
+      targetSound.once('loaderror', () => {
+        // Silently mark as failed
+        failedSoundsRef.current.add(targetAmbience);
+        ambienceRef.current[targetAmbience] = null;
+      });
+      return;
+    }
+
     // Fade out current ambience if playing
     if (currentAmbienceRef.current && currentAmbienceRef.current.playing()) {
       currentAmbienceRef.current.fade(

@@ -854,8 +854,8 @@ export default function Home() {
         </button>
       </footer>
 
-      {/* Spawn Boss Button (for testing) */}
-      {!activeBoss && (
+      {/* Spawn Boss Button (admin only) */}
+      {!activeBoss && player.is_admin && (
         <div className="fixed top-20 right-4 z-50 pointer-events-auto">
           <button
             onClick={() => { playSfx('ui_click'); spawnBoss(); }}
