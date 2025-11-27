@@ -61,7 +61,7 @@ class SoundManager {
 
       const isAmbience = soundKey === 'ambience_shallows';
       const howl = new Howl({
-        src,
+        src: [...src], // Spread to convert readonly array to mutable array
         volume: VOLUMES[soundKey],
         preload: true,
         loop: isAmbience,
@@ -250,7 +250,7 @@ class SoundManager {
     const src = SOUNDS[key];
     const isAmbience = key === 'ambience_shallows';
     const howl = new Howl({
-      src,
+      src: [...src], // Spread to convert readonly array to mutable array
       volume: VOLUMES[key],
       preload: false,
       loop: isAmbience,
