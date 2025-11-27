@@ -12,6 +12,7 @@ import AdminPanel from '@/components/AdminPanel';
 import BiomeBackground from '@/components/BiomeBackground';
 import AchievementToast from '@/components/AchievementToast';
 import { supabase } from '@/lib/supabase';
+import { audio } from '@/lib/audio';
 import type { PlayerProfile, InventoryItem } from '@/types';
 import { Shield, Sword, Volume2, VolumeX } from 'lucide-react';
 
@@ -467,6 +468,25 @@ export default function Home() {
       loadPlayerAndStatsWithState(userId);
     }
   }, [isInventoryOpen, userId, loadPlayerAndStatsWithState]);
+
+  // Unlock audio on first user interaction
+  useEffect(() => {
+    const unlockAudio = () => {
+      audio.unlock();
+    };
+
+    // Listen for any user interaction
+    const events = ['click', 'touchstart', 'keydown'];
+    events.forEach(event => {
+      document.addEventListener(event, unlockAudio, { once: true, passive: true });
+    });
+
+    return () => {
+      events.forEach(event => {
+        document.removeEventListener(event, unlockAudio);
+      });
+    };
+  }, []);
 
   // Start/update ambience based on player depth
   useEffect(() => {
