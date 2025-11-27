@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import type { PlayerProfile } from '@/types';
 import { MASTER_TITLES } from '@/constants/titles';
 import { useAudio } from './useAudio';
+import { useToast } from '@/context/ToastContext';
 const MAX_LEVEL = 50;
 
 // Helper function to calculate training cost
@@ -100,6 +101,7 @@ export function useGameLoop(
   onEffect: (type: 'damage' | 'gold' | 'xp' | 'item' | 'ghost' | 'achievement', value?: number, achievementData?: { title: string; description: string }) => void
 ) {
   const { playSfx } = useAudio();
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [graveDepth, setGraveDepth] = useState<number | null>(null);
@@ -1026,7 +1028,11 @@ export function useGameLoop(
       addLog(logMessage);
       onProfileUpdate({ ...player, ...updates });
 
-    } catch (err) { console.error(err); addLog("Something went wrong."); }
+    } catch (err) { 
+      console.error(err); 
+      toast.error('An unknown error occurred.');
+      addLog("Something went wrong."); 
+    }
     finally { setLoading(false); }
   }, [userId, player, loading, addLog, onProfileUpdate, onEffect, graveDepth, checkForGhosts, unlockAchievement, unlockTitle, setCanRetrieve]);
 
@@ -1307,6 +1313,7 @@ export function useGameLoop(
 
     } catch (err) { 
       console.error(err); 
+      toast.error('An unknown error occurred.');
       addLog("Something went wrong while exploring."); 
     }
     finally { 
@@ -1502,6 +1509,7 @@ export function useGameLoop(
       }
     } catch (err) {
       console.error('Error resolving boss fight:', err);
+      toast.error('An unknown error occurred.');
       addLog('Something went wrong resolving the boss fight.');
     } finally {
       setActiveBoss(null);

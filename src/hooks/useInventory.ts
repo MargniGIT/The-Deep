@@ -1,7 +1,9 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useToast } from '@/context/ToastContext';
 
 export function useInventory(userId: string | null) {
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
 
   // Function to Equip an Item
@@ -84,7 +86,7 @@ export function useInventory(userId: string | null) {
       const scrapValue = (item.scrap_value || item.value || 0) * quantity;
 
       if (scrapValue <= 0) {
-        alert("This item has no scrap value.");
+        toast.error("This item has no scrap value.");
         return false;
       }
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useInventory } from '@/hooks/useInventory';
 import { X, Shield, Sword, Box } from 'lucide-react';
+import { useToast } from '@/context/ToastContext';
 import type { InventoryItem } from '@/types';
 
 interface InventoryModalProps {
@@ -11,6 +12,7 @@ interface InventoryModalProps {
 }
 
 export default function InventoryModal({ userId, isOpen, onClose }: InventoryModalProps) {
+  const toast = useToast();
   const [items, setItems] = useState<InventoryItem[]>([]);
 
   const { equipItem, unequipItem, scrapItem, loading: actionLoading } = useInventory(userId);
@@ -56,7 +58,7 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
       if (success) await loadInventory();
     } else {
       // It's a consumable or material
-      alert("You can't equip this!");
+      toast.error("You can't equip this!");
     }
   };
 
@@ -146,10 +148,8 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
                     <button
                       disabled={actionLoading}
                       onClick={async () => {
-                        if (confirm(`Scrap ${entry.item.name} for parts?`)) {
-                          const success = await scrapItem(entry.id);
-                          if (success) await loadInventory();
-                        }
+                        const success = await scrapItem(entry.id);
+                        if (success) await loadInventory();
                       }}
                       className="ml-2 text-xs px-3 py-2 rounded font-bold transition-all bg-zinc-800 text-zinc-500 hover:bg-red-900/30 hover:text-red-400 border border-zinc-700 hover:border-red-500/30"
                     >

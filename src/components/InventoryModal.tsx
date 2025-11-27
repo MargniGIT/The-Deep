@@ -5,6 +5,7 @@ import { X, Shield, Sword, Box } from 'lucide-react';
 import type { InventoryItem } from '@/types';
 import ItemIcon from './ItemIcon';
 import { useAudio } from '@/hooks/useAudio';
+import { useToast } from '@/context/ToastContext';
 
 interface InventoryModalProps {
   userId: string | null;
@@ -85,8 +86,10 @@ function sortInventoryItems(items: InventoryItem[]): InventoryItem[] {
 
 export default function InventoryModal({ userId, isOpen, onClose }: InventoryModalProps) {
   const { playSfx, playHover } = useAudio();
+  const toast = useToast();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [inspectId, setInspectId] = useState<number | null>(null);
+  const [pendingScrapId, setPendingScrapId] = useState<number | null>(null);
   const { equipItem, unequipItem, scrapItem, loading: actionLoading } = useInventory(userId);
 
   // Fetch Inventory
@@ -111,6 +114,16 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
     if (isOpen) loadInventory();
   }, [isOpen, loadInventory]);
 
+  // Reset pending scrap confirmation after 3 seconds
+  useEffect(() => {
+    if (pendingScrapId !== null) {
+      const timer = setTimeout(() => {
+        setPendingScrapId(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [pendingScrapId]);
+
   const handleItemAction = async (inventoryItem: InventoryItem) => {
     // Unequip
     if (inventoryItem.is_equipped) {
@@ -125,7 +138,7 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
       const success = await equipItem(inventoryItem.id, targetSlot);
       if (success) await loadInventory();
     } else {
-      alert("You can't equip this!");
+      toast.error("You can't equip this!");
     }
   };
 
@@ -246,16 +259,30 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
                           playSfx('ui_click');
                           const quantity = entry.quantity || 1;
                           const itemName = entry.name_override || entry.item.name;
-                          const stackText = quantity > 1 ? ` (x${quantity})` : '';
-                          if (confirm(`Scrap ${itemName}${stackText} for parts?`)) {
+                          const scrapValue = (entry.item.scrap_value || entry.item.value || 0) * quantity;
+                          
+                          // Double-tap logic: First click sets pending, second click executes
+                          if (pendingScrapId === entry.id) {
+                            // Second click: Execute scrap
+                            setPendingScrapId(null);
                             const success = await scrapItem(entry.id);
-                            if (success) await loadInventory();
+                            if (success) {
+                              toast.success(`Scrapped ${itemName}${quantity > 1 ? ` (x${quantity})` : ''} for ${scrapValue} Metal.`);
+                              await loadInventory();
+                            }
+                          } else {
+                            // First click: Set pending confirmation
+                            setPendingScrapId(entry.id);
                           }
                         }}
                         onMouseEnter={() => playHover()}
-                        className="ml-2 text-xs px-3 py-2 rounded font-bold transition-all bg-zinc-800 text-zinc-500 hover:bg-red-900/30 hover:text-red-400 border border-zinc-700 hover:border-red-500/30"
+                        className={`ml-2 text-xs px-3 py-2 rounded font-bold transition-all border ${
+                          pendingScrapId === entry.id
+                            ? 'bg-red-900/50 text-red-200 border-red-500/50 hover:bg-red-800/50'
+                            : 'bg-zinc-800 text-zinc-500 hover:bg-red-900/30 hover:text-red-400 border-zinc-700 hover:border-red-500/30'
+                        }`}
                       >
-                        SCRAP
+                        {pendingScrapId === entry.id ? 'CONFIRM?' : 'SCRAP'}
                       </button>
                     )}
 

@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { MASTER_TITLES } from '@/constants/titles';
 import SakuraNameplate from '@/components/effects/SakuraNameplate';
 import { useAudio } from '@/hooks/useAudio';
+import { useToast } from '@/context/ToastContext';
 
 // Master Achievements List
 const MASTER_ACHIEVEMENTS = [
@@ -27,11 +28,11 @@ interface TownProps {
 
 export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, onBankTransaction }: TownProps) {
   const { playSfx, playHover } = useAudio();
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<'main' | 'merchant' | 'forge' | 'trainer' | 'leaderboard' | 'travel' | 'vault' | 'titles' | 'achievements'>('main');
   const [sellItems, setSellItems] = useState<InventoryItem[]>([]);
   const [scrapCount, setScrapCount] = useState(0);
-  const [message, setMessage] = useState('');
   const [leaderboard, setLeaderboard] = useState<PlayerProfile[]>([]);
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState('');
@@ -107,7 +108,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
       setLeaderboard((data as unknown as PlayerProfile[]) || []);
     } catch (err) {
       console.error('Failed to load leaderboard:', err);
-      setMessage('Failed to load leaderboard.');
+      toast.error('Failed to load leaderboard.');
     }
   };
 
@@ -188,11 +189,11 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
       
       if (error) throw error;
       
-      setMessage(`✓ Equipped ${MASTER_TITLES[titleId as keyof typeof MASTER_TITLES]?.label || titleId}`);
+      toast.success(`Equipped ${MASTER_TITLES[titleId as keyof typeof MASTER_TITLES]?.label || titleId}`);
       onRest({ active_title: titleId } as Partial<PlayerProfile>);
     } catch (err) {
       console.error(err);
-      setMessage('Failed to equip title.');
+      toast.error('Failed to equip title.');
     } finally {
       setLoading(false);
     }
@@ -218,13 +219,6 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
     }
   }, [player, view]);
 
-  // Clear success message after a delay
-  useEffect(() => {
-    if (message && message.includes('✓')) {
-      const timer = setTimeout(() => setMessage(''), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [message]);
 
   if (!player) return null;
 
@@ -238,7 +232,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
     playSfx('ui_click');
 
     if (player.gold < 10) {
-      setMessage("You don't have enough gold!");
+      toast.error("You don't have enough gold!");
       return;
     }
     setLoading(true);
@@ -249,7 +243,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
         .eq('id', userId);
 
       if (error) throw error;
-      setMessage("Restored HP & Stamina.");
+      toast.success("Restored HP & Stamina.");
       onRest({ gold: player.gold - 10, current_stamina: player.max_stamina, health: maxHealth, max_health: maxHealth });
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -266,11 +260,11 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
         .eq('id', userId);
 
       if (error) throw error;
-      setMessage("You climbed back up to the light.");
+      toast.success("You climbed back up to the light.");
       onRest({ depth: 0 });
     } catch (err) { 
       console.error(err); 
-      setMessage("Failed to ascend.");
+      toast.error("Failed to ascend.");
     }
     finally { setLoading(false); }
   };
@@ -296,7 +290,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
           .eq('id', userId);
 
         if (error) throw error;
-        setMessage("Something attacked you in your sleep!");
+        toast.error("Something attacked you in your sleep!");
         onRest({ health: newHealth });
       } else {
         // Safe sleep: +20 Stamina
@@ -307,12 +301,12 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
           .eq('id', userId);
 
         if (error) throw error;
-        setMessage("You rested uneasily. +20 Stamina.");
+        toast.info("You rested uneasily. +20 Stamina.");
         onRest({ current_stamina: newStamina });
       }
     } catch (err) { 
       console.error(err); 
-      setMessage("Failed to rest.");
+      toast.error("Failed to rest.");
     }
     finally { setLoading(false); }
   };
@@ -325,7 +319,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
     
     // Validation: 3-15 characters
     if (trimmedName.length < 3 || trimmedName.length > 15) {
-      setMessage("Name must be between 3-15 characters.");
+      toast.error("Name must be between 3-15 characters.");
       return;
     }
 
@@ -338,13 +332,13 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
       if (error) throw error;
       
-      setMessage("✓ Name updated!");
+      toast.success("Name updated!");
       onRest({ username: trimmedName });
       setIsEditingName(false);
       setNewName('');
     } catch (err) {
       console.error(err);
-      setMessage("Failed to update name.");
+      toast.error("Failed to update name.");
     } finally {
       setLoading(false);
     }
@@ -369,11 +363,11 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
       if (upError) throw upError;
 
       playSfx('gold'); // Gold sound when selling
-      setMessage(`Sold ${itemName} for ${itemValue} Gold.`);
+      toast.success(`Sold ${itemName} for ${itemValue} Gold.`);
       onRest({ gold: newGold });
       setSellItems((prev) => prev.filter((i) => i.id !== inventoryId));
 
-    } catch (err) { console.error(err); setMessage("Error selling item."); }
+    } catch (err) { console.error(err); toast.error("Error selling item."); }
     finally { setLoading(false); }
   };
 
@@ -383,7 +377,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
     const commonItems = sellItems.filter((i) => i.item.rarity === 'common');
     if (commonItems.length === 0) {
-      setMessage("No common items to sell.");
+      toast.info("No common items to sell.");
       return;
     }
 
@@ -413,13 +407,13 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
       if (upError) throw upError;
 
       playSfx('gold'); // Gold sound when bulk selling
-      setMessage(`Bulk sold ${idsToDelete.length} items for ${totalValue} Gold.`);
+      toast.success(`Bulk sold ${idsToDelete.length} items for ${totalValue} Gold.`);
       onRest({ gold: newGold });
       setSellItems((prev) => prev.filter((i) => !idsToDelete.includes(i.id)));
 
     } catch (err) {
       console.error(err);
-      setMessage("Bulk sell failed.");
+      toast.error("Bulk sell failed.");
     } finally {
       setLoading(false);
     }
@@ -432,7 +426,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
     // Validation: Check gold
     if (player.gold < recipe.cost) {
-      setMessage(`Not enough gold! Need ${recipe.cost} gold.`);
+      toast.error(`Not enough gold! Need ${recipe.cost} gold.`);
       return;
     }
 
@@ -450,7 +444,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
       ingredientCounts[ingredient.name] = count;
       
       if (count < ingredient.count) {
-        setMessage(`Not enough ${ingredient.name}! Need ${ingredient.count}, have ${count}.`);
+        toast.error(`Not enough ${ingredient.name}! Need ${ingredient.count}, have ${count}.`);
         return;
       }
     }
@@ -518,7 +512,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
       if (insertError) throw insertError;
 
-      setMessage(`Crafted ${recipe.name}!`);
+      toast.success(`Crafted ${recipe.name}!`);
       onRest({ gold: newGold });
       
       // Title: Forge Master (craft an item)
@@ -537,7 +531,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
             .insert({ user_id: userId, title_id: 'forge_master' });
           
           if (!titleError) {
-            setMessage(`Crafted ${recipe.name}! TITLE UNLOCKED: Forge Master`);
+            toast.success(`Crafted ${recipe.name}! TITLE UNLOCKED: Forge Master`);
             // Reload titles if we're on the titles view
             if (view === 'titles') {
               loadUnlockedTitles();
@@ -555,7 +549,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
     } catch (err: unknown) {
       console.error(err);
-      setMessage("Crafting failed: " + (err as Error).message);
+      toast.error("Crafting failed: " + (err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -570,7 +564,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
     const cost = Math.floor(baseCost * (1 - discount));
     
     if (player.gold < cost) {
-      setMessage("You don't have enough gold!");
+      toast.error("You don't have enough gold!");
       return;
     }
 
@@ -584,12 +578,12 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
       if (error) throw error;
 
-      setMessage(`Warped to ${targetDepth}m depth.`);
+      toast.success(`Warped to ${targetDepth}m depth.`);
       onRest({ depth: targetDepth, gold: newGold });
       onClose(); // Close Town after warping
     } catch (err) {
       console.error(err);
-      setMessage("Failed to warp.");
+      toast.error("Failed to warp.");
     } finally {
       setLoading(false);
     }
@@ -698,12 +692,6 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
           </div>
         </div>
 
-        {message && (
-          <div className="bg-zinc-900 px-4 py-2 rounded text-zinc-300 border border-zinc-700 text-center mb-4 text-sm animate-pulse">
-            {message}
-          </div>
-        )}
-
         {/* --- VIEW: MAIN MENU --- */}
         {view === 'main' && (
           <div className="flex flex-col gap-4 pb-4">
@@ -761,7 +749,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { playSfx('ui_click'); setView('merchant'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('merchant'); }}
                 onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
@@ -775,7 +763,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { playSfx('ui_click'); setView('forge'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('forge'); }}
                 onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
@@ -789,7 +777,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { playSfx('ui_click'); setView('trainer'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('trainer'); }}
                 onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
@@ -803,7 +791,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { playSfx('ui_click'); setView('travel'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('travel'); }}
                 onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
@@ -817,7 +805,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { playSfx('ui_click'); setView('vault'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('vault'); }}
                 onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
@@ -831,7 +819,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { playSfx('ui_click'); setView('leaderboard'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('leaderboard'); }}
                 onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
@@ -845,7 +833,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { playSfx('ui_click'); setView('titles'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('titles'); }}
                 onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
@@ -859,7 +847,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { playSfx('ui_click'); setView('achievements'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('achievements'); }}
                 onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
@@ -1036,16 +1024,13 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                       playSfx('ui_click');
                       
                       setLoading(true);
-                      setMessage(`Training ${stat}...`);
                       
                       await onGoldUpgrade(stat);
                       
                       // The player prop will update via onProfileUpdate
-                      // Show success message briefly
-                      setTimeout(() => {
-                        setMessage(`✓ ${stat.charAt(0).toUpperCase() + stat.slice(1)} increased!`);
-                        setLoading(false);
-                      }, 500);
+                      // Show success message
+                      toast.success(`${stat.charAt(0).toUpperCase() + stat.slice(1)} increased!`);
+                      setLoading(false);
                     }}
                     disabled={loading || !canAfford || !onGoldUpgrade}
                     className={`px-3 py-2 rounded text-sm font-semibold flex items-center gap-1.5 transition-all ${
@@ -1170,7 +1155,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                     playSfx('ui_click');
                     const amount = 100;
                     if ((player.gold || 0) < amount) {
-                      setMessage("Not enough gold!");
+                      toast.error("Not enough gold!");
                       return;
                     }
                     setLoading(true);
@@ -1192,7 +1177,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                     playSfx('ui_click');
                     const amount = 1000;
                     if ((player.gold || 0) < amount) {
-                      setMessage("Not enough gold!");
+                      toast.error("Not enough gold!");
                       return;
                     }
                     setLoading(true);
@@ -1214,7 +1199,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                     playSfx('ui_click');
                     const amount = player.gold || 0;
                     if (amount <= 0) {
-                      setMessage("No gold to deposit!");
+                      toast.error("No gold to deposit!");
                       return;
                     }
                     setLoading(true);
@@ -1243,7 +1228,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                     playSfx('ui_click');
                     const amount = -100;
                     if ((player.bank_gold || 0) < 100) {
-                      setMessage("Not enough gold in vault!");
+                      toast.error("Not enough gold in vault!");
                       return;
                     }
                     setLoading(true);
@@ -1265,7 +1250,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                     playSfx('ui_click');
                     const amount = -1000;
                     if ((player.bank_gold || 0) < 1000) {
-                      setMessage("Not enough gold in vault!");
+                      toast.error("Not enough gold in vault!");
                       return;
                     }
                     setLoading(true);
@@ -1287,7 +1272,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                     playSfx('ui_click');
                     const amount = -(player.bank_gold || 0);
                     if (amount >= 0) {
-                      setMessage("No gold in vault!");
+                      toast.error("No gold in vault!");
                       return;
                     }
                     setLoading(true);
