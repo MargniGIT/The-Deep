@@ -40,6 +40,37 @@ export function useAudio() {
 
   const currentAmbienceRef = useRef<Howl | null>(null);
   const failedSoundsRef = useRef<Set<SfxName | AmbienceName>>(new Set());
+  const audioUnlockedRef = useRef(false);
+
+  // Unlock audio on first user interaction
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (audioUnlockedRef.current) return;
+      audioUnlockedRef.current = true;
+      
+      // Resume Howler's audio context if it exists
+      if (typeof window !== 'undefined' && (window as any).Howl) {
+        const ctx = (window as any).Howl?.ctx;
+        if (ctx && ctx.state === 'suspended') {
+          ctx.resume().catch(() => {
+            // Silently fail if resume fails
+          });
+        }
+      }
+    };
+
+    // Listen for any user interaction
+    const events = ['click', 'touchstart', 'keydown'];
+    events.forEach(event => {
+      document.addEventListener(event, unlockAudio, { once: true, passive: true });
+    });
+
+    return () => {
+      events.forEach(event => {
+        document.removeEventListener(event, unlockAudio);
+      });
+    };
+  }, []);
 
   // Initialize sounds
   useEffect(() => {
@@ -47,7 +78,7 @@ export function useAudio() {
     soundsRef.current.ui_click = new Howl({
       src: ['/sounds/ui_click.mp3', '/sounds/ui_click.wav'],
       volume: 0.5,
-      preload: true,
+      preload: false, // Don't preload to avoid AudioContext issues
       onloaderror: (id, error) => {
         // Silently mark as failed - don't spam console
         failedSoundsRef.current.add('ui_click');
@@ -58,7 +89,7 @@ export function useAudio() {
     soundsRef.current.ui_hover = new Howl({
       src: ['/sounds/ui_hover.mp3', '/sounds/ui_hover.wav'],
       volume: 0.3,
-      preload: true,
+      preload: false,
       onloaderror: (id, error) => {
         failedSoundsRef.current.add('ui_hover');
         soundsRef.current.ui_hover = null;
@@ -68,7 +99,7 @@ export function useAudio() {
     soundsRef.current.step = new Howl({
       src: ['/sounds/step.mp3', '/sounds/step.wav'],
       volume: 0.4,
-      preload: true,
+      preload: false,
       onloaderror: (id, error) => {
         failedSoundsRef.current.add('step');
         soundsRef.current.step = null;
@@ -78,7 +109,7 @@ export function useAudio() {
     soundsRef.current.gold = new Howl({
       src: ['/sounds/gold.mp3', '/sounds/gold.wav'],
       volume: 0.5,
-      preload: true,
+      preload: false,
       onloaderror: (id, error) => {
         failedSoundsRef.current.add('gold');
         soundsRef.current.gold = null;
@@ -88,7 +119,7 @@ export function useAudio() {
     soundsRef.current.hit = new Howl({
       src: ['/sounds/hit.mp3', '/sounds/hit.wav'],
       volume: 0.6,
-      preload: true,
+      preload: false,
       onloaderror: (id, error) => {
         failedSoundsRef.current.add('hit');
         soundsRef.current.hit = null;
@@ -98,7 +129,7 @@ export function useAudio() {
     soundsRef.current.rare_loot = new Howl({
       src: ['/sounds/rare_loot.mp3', '/sounds/rare_loot.wav'],
       volume: 0.6,
-      preload: true,
+      preload: false,
       onloaderror: (id, error) => {
         // Silently mark as failed - don't spam console
         failedSoundsRef.current.add('rare_loot');
@@ -109,7 +140,7 @@ export function useAudio() {
     soundsRef.current.legendary_loot = new Howl({
       src: ['/sounds/legendary_loot.mp3', '/sounds/legendary_loot.wav'],
       volume: 0.7,
-      preload: true,
+      preload: false,
       onloaderror: (id, error) => {
         failedSoundsRef.current.add('legendary_loot');
         soundsRef.current.legendary_loot = null;
@@ -121,7 +152,7 @@ export function useAudio() {
       src: ['/sounds/ambience_shallows.mp3', '/sounds/ambience_shallows.wav'],
       volume: 0.3,
       loop: true,
-      preload: true,
+      preload: false,
       onloaderror: (id, error) => {
         failedSoundsRef.current.add('ambience_shallows');
         ambienceRef.current.ambience_shallows = null;
@@ -159,6 +190,20 @@ export function useAudio() {
     }
 
     try {
+      // Unlock audio on first play attempt
+      if (!audioUnlockedRef.current) {
+        audioUnlockedRef.current = true;
+        // Resume Howler's audio context if it exists
+        if (typeof window !== 'undefined' && (window as any).Howl) {
+          const ctx = (window as any).Howl?.ctx;
+          if (ctx && ctx.state === 'suspended') {
+            ctx.resume().catch(() => {
+              // Silently fail if resume fails
+            });
+          }
+        }
+      }
+
       // Check if sound is loaded
       const state = sound.state();
       if (state === 'unloaded') {
@@ -195,6 +240,11 @@ export function useAudio() {
         currentAmbienceRef.current.stop();
         currentAmbienceRef.current = null;
       }
+      return;
+    }
+    
+    // Don't play ambience until audio is unlocked
+    if (!audioUnlockedRef.current) {
       return;
     }
     

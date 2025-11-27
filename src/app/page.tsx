@@ -543,6 +543,8 @@ export default function Home() {
         .from('graves')
         .select('*')
         .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (graveError) {

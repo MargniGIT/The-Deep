@@ -263,6 +263,8 @@ export function useGameLoop(
           .from('graves')
           .select('depth')
           .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
 
         if (error) {
@@ -939,6 +941,8 @@ export function useGameLoop(
               .from('graves')
               .select('depth')
               .eq('user_id', userId)
+              .order('created_at', { ascending: false })
+              .limit(1)
               .maybeSingle();
             if (verifyError) {
               console.error('Warning: Grave created but verification failed:', verifyError);
@@ -1492,7 +1496,8 @@ export function useGameLoop(
         const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
         if (!error) {
           onProfileUpdate({ ...player, ...updates });
-          addLog(`YOU DIED. Your gear lies at ${currentDepth}m.`);
+          // Death message already logged in handleDescend, don't duplicate
+          // addLog(`YOU DIED. Your gear lies at ${currentDepth}m.`);
         }
       }
     } catch (err) {

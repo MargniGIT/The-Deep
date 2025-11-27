@@ -41,6 +41,8 @@ export default function CombatModal({ player, monster, onVictory, onDefeat, inve
   const [shouldShake, setShouldShake] = useState(false);
   const [lastBossHp, setLastBossHp] = useState(monster.hp);
   const bossTurnInProgress = useRef(false);
+  const deathHandledRef = useRef(false);
+  const lastLogMessageRef = useRef<string>('');
 
   // Calculate player stats from equipped gear
   const getPlayerStats = useCallback(() => {
@@ -81,10 +83,27 @@ export default function CombatModal({ player, monster, onVictory, onDefeat, inve
   const foodCount = getConsumables().length;
 
   const addLog = useCallback((message: string, isPlayerDamage: boolean = false) => {
+    // Prevent duplicate log messages
+    if (lastLogMessageRef.current === message) {
+      return;
+    }
+    lastLogMessageRef.current = message;
+    
     setCombatLog(prev => {
+      // Check if message already exists in log to prevent duplicates
+      if (prev.length > 0 && prev[0] === message) {
+        return prev;
+      }
       const newLog = [message, ...prev].slice(0, 4);
       return newLog;
     });
+    
+    // Reset the ref after a short delay to allow same message later if needed
+    setTimeout(() => {
+      if (lastLogMessageRef.current === message) {
+        lastLogMessageRef.current = '';
+      }
+    }, 100);
   }, []);
 
   // Shake animation trigger
@@ -231,34 +250,36 @@ export default function CombatModal({ player, monster, onVictory, onDefeat, inve
       setIsDefending(false);
     }
     
-    setPlayerHp(prevHp => {
-      const newPlayerHp = Math.max(0, prevHp - damage);
-      
-      // Play hit sound when player takes damage
-      if (damage > 0) {
-        playSfx('hit');
-      }
-      
-      if (attackType === 'heavy') {
-        addLog(`> ${monster.name} hit for ${damage} dmg!`, true);
-      } else {
-        addLog(`> ${monster.name} hit for ${damage} dmg.`, true);
-      }
-      
-      if (newPlayerHp <= 0) {
-        setTimeout(() => {
-          addLog('> YOU HAVE FALLEN...');
-          onDefeat();
-        }, 1000);
-        return newPlayerHp;
-      }
-      
+    // Play hit sound once when player takes damage (before state update)
+    if (damage > 0) {
+      playSfx('hit');
+    }
+    
+    // Add log message once (outside state setter to prevent duplicates)
+    if (attackType === 'heavy') {
+      addLog(`> ${monster.name} hit for ${damage} dmg!`, true);
+    } else {
+      addLog(`> ${monster.name} hit for ${damage} dmg.`, true);
+    }
+    
+    const currentHp = playerHp;
+    const newPlayerHp = Math.max(0, currentHp - damage);
+    
+    if (newPlayerHp <= 0 && !deathHandledRef.current) {
+      // Only handle death once
+      deathHandledRef.current = true;
+      setTimeout(() => {
+        addLog('> YOU HAVE FALLEN...');
+        onDefeat();
+      }, 1000);
+    } else if (newPlayerHp > 0) {
       setTurn('player');
       setIsProcessing(false);
       bossTurnInProgress.current = false;
-      return newPlayerHp;
-    });
-  }, [monster, getPlayerStats, isDefending, artifactUsed, addLog, onDefeat]);
+    }
+    
+    setPlayerHp(newPlayerHp);
+  }, [monster, getPlayerStats, isDefending, artifactUsed, addLog, onDefeat, playerHp]);
 
   // Initialize combat log
   useEffect(() => {
