@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useGameLoop } from '@/hooks/useGameLoop';
+import { useAudio } from '@/hooks/useAudio';
 import StatsDisplay from '@/components/StatsDisplay';
 import GameLog from '@/components/GameLog';
 import Town from '@/components/Town';
@@ -12,7 +13,7 @@ import BiomeBackground from '@/components/BiomeBackground';
 import AchievementToast from '@/components/AchievementToast';
 import { supabase } from '@/lib/supabase';
 import type { PlayerProfile, InventoryItem } from '@/types';
-import { Shield, Sword } from 'lucide-react';
+import { Shield, Sword, Volume2, VolumeX } from 'lucide-react';
 
 type FloatingText = {
   id: number;
@@ -40,6 +41,7 @@ function getBiomeStyle(depth: number): string {
 }
 
 export default function Home() {
+  const { playAmbience, playSfx, playHover, isMuted, toggleMute } = useAudio();
   const [userId, setUserId] = useState<string | null>(null);
   const [player, setPlayer] = useState<PlayerProfile | null>(null);
   const [derivedStats, setDerivedStats] = useState({ attack: 0, defense: 0 });
@@ -56,8 +58,14 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState<string>('Authenticating...');
 
+  // Mapping of achievement titles/descriptions to title IDs
+  const achievementToTitleMap: Record<string, string> = {
+    'Boss Slayer': 'slayer',
+    'Deep Diver': 'deep_diver', // Note: Achievement is 500m, Title is 1000m - but we can still link them
+  };
+
   // --- 1. UPDATED HANDLE EFFECT ---
-  const handleEffect = useCallback((type: 'damage' | 'gold' | 'xp' | 'item' | 'ghost' | 'achievement', value?: number, achievementData?: { title: string; description: string }) => {
+  const handleEffect = useCallback(async (type: 'damage' | 'gold' | 'xp' | 'item' | 'ghost' | 'achievement', value?: number, achievementData?: { title: string; description: string }) => {
     if (type === 'damage') {
       setDamageFlash(true);
       setTimeout(() => setDamageFlash(false), 300);
@@ -72,6 +80,33 @@ export default function Home() {
       setTimeout(() => {
         setAchievementNotification(null);
       }, 5000);
+      
+      // Check if achievement has a corresponding title and unlock it
+      if (userId && achievementData.title && achievementToTitleMap[achievementData.title]) {
+        const titleId = achievementToTitleMap[achievementData.title];
+        try {
+          // Check if title already exists
+          const { data: existingTitle } = await supabase
+            .from('user_titles')
+            .select('title_id')
+            .eq('user_id', userId)
+            .eq('title_id', titleId)
+            .maybeSingle();
+          
+          if (!existingTitle) {
+            const { error } = await supabase
+              .from('user_titles')
+              .insert({ user_id: userId, title_id: titleId });
+            
+            if (!error) {
+              console.log(`Title unlocked via achievement: ${titleId}`);
+            }
+          }
+        } catch (err) {
+          console.error('Error unlocking title from achievement:', err);
+        }
+      }
+      
       return;
     }
 
@@ -104,7 +139,7 @@ export default function Home() {
     }
   }, []);
 
-  const { handleDescend, handleExplore, handleStatUpgrade, handleGoldUpgrade, handleBankTransaction, logs, loading: loopLoading, canRetrieve, setCanRetrieve, addLog, setGraveDepth, activeBoss, resolveBossFight } = useGameLoop(
+  const { handleDescend, handleExplore, handleStatUpgrade, handleGoldUpgrade, handleBankTransaction, logs, loading: loopLoading, canRetrieve, setCanRetrieve, addLog, setGraveDepth, activeBoss, resolveBossFight, spawnBoss } = useGameLoop(
     userId,
     player, 
     (p) => setPlayer(p), 
@@ -433,6 +468,13 @@ export default function Home() {
     }
   }, [isInventoryOpen, userId, loadPlayerAndStatsWithState]);
 
+  // Start/update ambience based on player depth
+  useEffect(() => {
+    if (player && player.depth !== undefined) {
+      playAmbience(player.depth);
+    }
+  }, [player?.depth, playAmbience]);
+
   // Load inventory when boss encounter starts
   useEffect(() => {
     const loadBossInventory = async () => {
@@ -719,7 +761,13 @@ export default function Home() {
       </header>
 
       <section className="relative z-10 flex-1 overflow-hidden">
-        <GameLog logs={logs} />
+        <GameLog 
+          logs={logs} 
+          isMuted={isMuted}
+          onToggleMute={toggleMute}
+          onPlaySfx={playSfx}
+          onPlayHover={playHover}
+        />
         {/* Floating Retrieve Souls Button */}
         {canRetrieve && (
           <div className="absolute bottom-20 left-0 right-0 flex justify-center z-50 pointer-events-auto px-4">
@@ -764,19 +812,27 @@ export default function Home() {
       <footer className="relative z-50 p-4 border-t border-zinc-800 bg-zinc-900 grid grid-cols-3 gap-2">
         <button 
           onClick={() => {
+            playSfx('ui_click');
             setIsTownOpen(!isTownOpen);
             setIsInventoryOpen(false); // Close inventory when opening camp/town
-          }} 
+          }}
+          onMouseEnter={() => playHover()}
           className="bg-zinc-800 hover:bg-zinc-700 p-3 rounded font-bold text-yellow-500 transition-colors"
         >
           {player.depth > 0 ? 'CAMP' : 'TOWN'}
         </button>
         <div className="flex flex-col gap-2">
-          <button onClick={handleDescend} disabled={loopLoading || isTownOpen || isInventoryOpen} className="bg-zinc-100 hover:bg-white text-black p-2 rounded font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transform duration-75 text-sm">
+          <button 
+            onClick={() => { playSfx('ui_click'); handleDescend(); }} 
+            onMouseEnter={() => playHover()}
+            disabled={loopLoading || isTownOpen || isInventoryOpen} 
+            className="bg-zinc-100 hover:bg-white text-black p-2 rounded font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transform duration-75 text-sm"
+          >
             {loopLoading ? '...' : 'DESCEND'}
           </button>
           <button 
-            onClick={handleExplore} 
+            onClick={() => { playSfx('ui_click'); handleExplore(); }}
+            onMouseEnter={() => playHover()}
             disabled={loopLoading || isTownOpen || isInventoryOpen || (player.current_stamina || 0) < Math.max(1, Math.floor((player.depth || 0) / 1000))} 
             className="bg-zinc-800 hover:bg-zinc-700 p-2 rounded font-bold text-green-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transform duration-75 text-sm"
           >
@@ -785,14 +841,30 @@ export default function Home() {
         </div>
         <button 
           onClick={() => {
+            playSfx('ui_click');
             setIsInventoryOpen(true);
             setIsTownOpen(false); // Close camp/town when opening inventory
-          }} 
+          }}
+          onMouseEnter={() => playHover()}
           className="bg-zinc-800 hover:bg-zinc-700 p-3 rounded font-bold text-blue-400 transition-colors"
         >
           BAG
         </button>
       </footer>
+
+      {/* Spawn Boss Button (for testing) */}
+      {!activeBoss && (
+        <div className="fixed top-20 right-4 z-50 pointer-events-auto">
+          <button
+            onClick={() => { playSfx('ui_click'); spawnBoss(); }}
+            onMouseEnter={() => playHover()}
+            disabled={loopLoading || isTownOpen || isInventoryOpen}
+            className="bg-red-600/90 hover:bg-red-600 text-white px-3 py-2 rounded font-bold text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg border-2 border-red-700/50"
+          >
+            SPAWN BOSS
+          </button>
+        </div>
+      )}
 
       <AdminPanel player={player} onUpdate={(updates) => setPlayer({ ...player, ...updates })} />
     </main>

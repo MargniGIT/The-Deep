@@ -4,6 +4,7 @@ import { useInventory } from '@/hooks/useInventory';
 import { X, Shield, Sword, Box } from 'lucide-react';
 import type { InventoryItem } from '@/types';
 import ItemIcon from './ItemIcon';
+import { useAudio } from '@/hooks/useAudio';
 
 interface InventoryModalProps {
   userId: string | null;
@@ -83,6 +84,7 @@ function sortInventoryItems(items: InventoryItem[]): InventoryItem[] {
 }
 
 export default function InventoryModal({ userId, isOpen, onClose }: InventoryModalProps) {
+  const { playSfx, playHover } = useAudio();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [inspectId, setInspectId] = useState<number | null>(null);
   const { equipItem, unequipItem, scrapItem, loading: actionLoading } = useInventory(userId);
@@ -138,7 +140,7 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
           <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
             <Box size={20} className="text-blue-400" /> Backpack
           </h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white transition-colors">
+          <button onClick={() => { playSfx('ui_click'); onClose(); }} onMouseEnter={() => playHover()} className="text-zinc-400 hover:text-white transition-colors">
             <X size={24} />
           </button>
         </div>
@@ -224,7 +226,8 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
                     {/* Button */}
                     <button
                       disabled={actionLoading}
-                      onClick={() => handleItemAction(entry)}
+                      onClick={() => { playSfx('ui_click'); handleItemAction(entry); }}
+                      onMouseEnter={() => playHover()}
                       className={`ml-3 text-xs px-3 py-2 rounded font-bold transition-all min-w-[70px] ${entry.is_equipped
                         ? 'bg-zinc-800 text-zinc-400 hover:text-red-400 hover:bg-zinc-900 border border-zinc-700'
                         : entry.item.valid_slot
@@ -240,6 +243,7 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
                       <button
                         disabled={actionLoading}
                         onClick={async () => {
+                          playSfx('ui_click');
                           const quantity = entry.quantity || 1;
                           const itemName = entry.name_override || entry.item.name;
                           const stackText = quantity > 1 ? ` (x${quantity})` : '';
@@ -248,6 +252,7 @@ export default function InventoryModal({ userId, isOpen, onClose }: InventoryMod
                             if (success) await loadInventory();
                           }
                         }}
+                        onMouseEnter={() => playHover()}
                         className="ml-2 text-xs px-3 py-2 rounded font-bold transition-all bg-zinc-800 text-zinc-500 hover:bg-red-900/30 hover:text-red-400 border border-zinc-700 hover:border-red-500/30"
                       >
                         SCRAP

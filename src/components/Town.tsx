@@ -1,10 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Home, ArrowLeft, Coins, Trash2, Hammer, Swords, ArrowUp, Check } from 'lucide-react';
+import { X, Home, ArrowLeft, Coins, Trash2, Hammer, Swords, ArrowUp, Check, Trophy, ArrowDown, Star, Shield } from 'lucide-react';
 import { GiCampingTent, GiReceiveMoney, GiAnvilImpact, GiStrongbox, GiTrophyCup, GiElevator, GiScrollUnfurled, GiMedal } from 'react-icons/gi';
 import type { PlayerProfile, InventoryItem } from '@/types';
 import { supabase } from '@/lib/supabase';
 import { MASTER_TITLES } from '@/constants/titles';
 import SakuraNameplate from '@/components/effects/SakuraNameplate';
+import { useAudio } from '@/hooks/useAudio';
+
+// Master Achievements List
+const MASTER_ACHIEVEMENTS = [
+  { id: 'deep_diver', title: 'Deep Diver', desc: 'Reach 500m depth.', icon: 'ArrowDown' },
+  { id: 'hoarder', title: 'Hoarder', desc: 'Hold 1000 Gold at once.', icon: 'Coins' },
+  { id: 'veteran', title: 'Seasoned Veteran', desc: 'Reach Level 10.', icon: 'Star' },
+  { id: 'slayer', title: 'Beast Slayer', desc: 'Defeat a Boss monster.', icon: 'Sword' },
+  { id: 'collector', title: 'Collector', desc: 'Equip a full Set of armor.', icon: 'Shield' }
+];
 
 interface TownProps {
   userId: string | null;
@@ -16,8 +26,9 @@ interface TownProps {
 }
 
 export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, onBankTransaction }: TownProps) {
+  const { playSfx, playHover } = useAudio();
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<'main' | 'merchant' | 'forge' | 'trainer' | 'leaderboard' | 'travel' | 'vault' | 'titles'>('main');
+  const [view, setView] = useState<'main' | 'merchant' | 'forge' | 'trainer' | 'leaderboard' | 'travel' | 'vault' | 'titles' | 'achievements'>('main');
   const [sellItems, setSellItems] = useState<InventoryItem[]>([]);
   const [scrapCount, setScrapCount] = useState(0);
   const [message, setMessage] = useState('');
@@ -26,6 +37,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
   const [newName, setNewName] = useState('');
   const [ingredientCounts, setIngredientCounts] = useState<Record<string, Record<string, { have: number; need: number }>>>({});
   const [unlockedTitles, setUnlockedTitles] = useState<Set<string>>(new Set());
+  const [unlockedAchievements, setUnlockedAchievements] = useState<Set<string>>(new Set());
 
   // Helper function to calculate training cost
   const getTrainingCost = (bought: number) => 100 * (bought + 1);
@@ -143,9 +155,29 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
     }
   }, [userId]);
 
+  // Load unlocked achievements
+  const loadAchievements = useCallback(async () => {
+    if (!userId) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_achievements')
+        .select('achievement_id')
+        .eq('user_id', userId);
+      
+      if (!error && data) {
+        const achievementSet = new Set(data.map(a => a.achievement_id));
+        setUnlockedAchievements(achievementSet);
+      }
+    } catch (err) {
+      console.error('Error loading achievements:', err);
+    }
+  }, [userId]);
+
   // Equip a title
   const handleEquipTitle = async (titleId: string) => {
     if (!userId) return;
+    playSfx('ui_click');
     
     setLoading(true);
     try {
@@ -174,7 +206,8 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
     }
     if (view === 'leaderboard') loadLeaderboard();
     if (view === 'titles') loadUnlockedTitles();
-  }, [view, loadScrapCount, loadIngredientCounts, loadSellableItems, loadLeaderboard, loadUnlockedTitles]);
+    if (view === 'achievements') loadAchievements();
+  }, [view, loadScrapCount, loadIngredientCounts, loadSellableItems, loadLeaderboard, loadUnlockedTitles, loadAchievements]);
 
   // Reset view to main when switching to campsite mode (to prevent accessing merchant/forge)
   useEffect(() => {
@@ -202,6 +235,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
   const handleRest = async () => {
     if (!userId) return;
+    playSfx('ui_click');
 
     if (player.gold < 10) {
       setMessage("You don't have enough gold!");
@@ -223,6 +257,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
   const handleAscend = async () => {
     if (!userId) return;
+    playSfx('ui_click');
 
     setLoading(true);
     try {
@@ -242,6 +277,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
   const handleRoughSleep = async () => {
     if (!userId) return;
+    playSfx('ui_click');
 
     setLoading(true);
     try {
@@ -283,6 +319,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
   const handleRename = async () => {
     if (!userId) return;
+    playSfx('ui_click');
 
     const trimmedName = newName.trim();
     
@@ -315,6 +352,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
   const handleSell = async (inventoryId: number, itemValue: number, itemName: string) => {
     if (!userId) return;
+    playSfx('ui_click');
 
     if (!userId) return;
 
@@ -330,6 +368,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
         .eq('id', userId);
       if (upError) throw upError;
 
+      playSfx('gold'); // Gold sound when selling
       setMessage(`Sold ${itemName} for ${itemValue} Gold.`);
       onRest({ gold: newGold });
       setSellItems((prev) => prev.filter((i) => i.id !== inventoryId));
@@ -340,6 +379,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
   const handleBulkSell = async () => {
     if (!userId) return;
+    playSfx('ui_click');
 
     const commonItems = sellItems.filter((i) => i.item.rarity === 'common');
     if (commonItems.length === 0) {
@@ -372,6 +412,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
       if (upError) throw upError;
 
+      playSfx('gold'); // Gold sound when bulk selling
       setMessage(`Bulk sold ${idsToDelete.length} items for ${totalValue} Gold.`);
       onRest({ gold: newGold });
       setSellItems((prev) => prev.filter((i) => !idsToDelete.includes(i.id)));
@@ -387,6 +428,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
   // --- CRAFTING LOGIC ---
   const handleCraft = async (recipe: typeof RECIPES[0]) => {
     if (!userId) return;
+    playSfx('ui_click');
 
     // Validation: Check gold
     if (player.gold < recipe.cost) {
@@ -481,6 +523,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
       
       // Title: Forge Master (craft an item)
       try {
+        // Check if title already exists (ignoreDuplicates pattern)
         const { data: existingTitle } = await supabase
           .from('user_titles')
           .select('title_id')
@@ -489,15 +532,16 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
           .maybeSingle();
         
         if (!existingTitle) {
-          await supabase
+          const { error: titleError } = await supabase
             .from('user_titles')
-            .insert({
-              user_id: userId,
-              title_id: 'forge_master'
-            });
-          // Reload titles if we're on the titles view
-          if (view === 'titles') {
-            loadUnlockedTitles();
+            .insert({ user_id: userId, title_id: 'forge_master' });
+          
+          if (!titleError) {
+            setMessage(`Crafted ${recipe.name}! TITLE UNLOCKED: Forge Master`);
+            // Reload titles if we're on the titles view
+            if (view === 'titles') {
+              loadUnlockedTitles();
+            }
           }
         }
       } catch (err) {
@@ -519,6 +563,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
   const handleWarp = async (targetDepth: number) => {
     if (!userId) return;
+    playSfx('ui_click');
 
     const baseCost = getTravelCost(targetDepth);
     const discount = Math.min(0.5, (player.aether || 0) * 0.01); // 1% per point, max 50%
@@ -576,7 +621,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
             <Home className="text-yellow-500" size={24} />
             <div className="flex-1">
               <h2 className="text-2xl font-bold text-zinc-100">
-                {isCampsite && view === 'main' ? 'Temporary Camp' : view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : view === 'trainer' ? 'Combat Trainer' : view === 'travel' ? 'Abyssal Elevator' : view === 'vault' ? 'Iron Vault' : view === 'titles' ? 'Titles' : 'Hall of Records'}
+                {isCampsite && view === 'main' ? 'Temporary Camp' : view === 'main' ? 'The Outpost' : view === 'merchant' ? 'Scrap Merchant' : view === 'forge' ? 'The Forge' : view === 'trainer' ? 'Combat Trainer' : view === 'travel' ? 'Abyssal Elevator' : view === 'vault' ? 'Iron Vault' : view === 'titles' ? 'Titles' : view === 'achievements' ? 'Trophies' : 'Hall of Records'}
               </h2>
               {view === 'main' && (
                 <div className="flex items-center gap-2 mt-1">
@@ -638,7 +683,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               )}
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
+          <button onClick={() => { playSfx('ui_click'); onClose(); }} onMouseEnter={() => playHover()} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
             <X size={24} />
           </button>
         </div>
@@ -667,6 +712,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
             <>
               <button
                 onClick={handleRoughSleep}
+                onMouseEnter={() => playHover()}
                 disabled={loading}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group disabled:opacity-50"
               >
@@ -682,6 +728,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
 
               <button
                 onClick={handleAscend}
+                onMouseEnter={() => playHover()}
                 disabled={loading}
                 className="flex items-center gap-4 bg-zinc-900 border-2 border-blue-500 p-4 rounded-lg hover:border-blue-400 transition-all text-left group disabled:opacity-50"
               >
@@ -699,6 +746,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               {/* TOWN MODE (depth == 0) */}
               <button
                 onClick={handleRest}
+                onMouseEnter={() => playHover()}
                 disabled={loading || player.gold < 10}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group disabled:opacity-50"
               >
@@ -713,7 +761,8 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { setView('merchant'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('merchant'); setMessage(''); }}
+                onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
                 <div className="bg-zinc-800 p-3 rounded text-green-400 group-hover:text-green-300">
@@ -726,7 +775,8 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { setView('forge'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('forge'); setMessage(''); }}
+                onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
                 <div className="bg-zinc-800 p-3 rounded text-red-500 group-hover:text-red-400">
@@ -739,7 +789,8 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { setView('trainer'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('trainer'); setMessage(''); }}
+                onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
                 <div className="bg-zinc-800 p-3 rounded text-purple-500 group-hover:text-purple-400">
@@ -752,7 +803,8 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { setView('travel'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('travel'); setMessage(''); }}
+                onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
                 <div className="bg-zinc-800 p-3 rounded text-cyan-500 group-hover:text-cyan-400">
@@ -765,7 +817,8 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { setView('vault'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('vault'); setMessage(''); }}
+                onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
                 <div className="bg-zinc-800 p-3 rounded text-amber-600 group-hover:text-amber-500">
@@ -778,7 +831,8 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { setView('leaderboard'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('leaderboard'); setMessage(''); }}
+                onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
                 <div className="bg-zinc-800 p-3 rounded text-yellow-500 group-hover:text-yellow-400">
@@ -791,7 +845,8 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
               </button>
 
               <button
-                onClick={() => { setView('titles'); setMessage(''); }}
+                onClick={() => { playSfx('ui_click'); setView('titles'); setMessage(''); }}
+                onMouseEnter={() => playHover()}
                 className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
               >
                 <div className="bg-zinc-800 p-3 rounded text-purple-500 group-hover:text-purple-400">
@@ -800,6 +855,20 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 <div className="flex-1">
                   <h3 className="font-bold text-lg">Titles</h3>
                   <p className="text-zinc-500 text-sm">Equip Your Achievements</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => { playSfx('ui_click'); setView('achievements'); setMessage(''); }}
+                onMouseEnter={() => playHover()}
+                className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-lg hover:border-zinc-600 transition-all text-left group"
+              >
+                <div className="bg-zinc-800 p-3 rounded text-yellow-500 group-hover:text-yellow-400">
+                  <Trophy size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg">Trophy Room</h3>
+                  <p className="text-zinc-500 text-sm">View Your Achievements</p>
                 </div>
               </button>
             </>
@@ -964,6 +1033,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                   <button
                     onClick={async () => {
                       if (!onGoldUpgrade || loading || !canAfford) return;
+                      playSfx('ui_click');
                       
                       setLoading(true);
                       setMessage(`Training ${stat}...`);
@@ -1097,6 +1167,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 <button
                   onClick={async () => {
                     if (!onBankTransaction || loading) return;
+                    playSfx('ui_click');
                     const amount = 100;
                     if ((player.gold || 0) < amount) {
                       setMessage("Not enough gold!");
@@ -1118,6 +1189,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 <button
                   onClick={async () => {
                     if (!onBankTransaction || loading) return;
+                    playSfx('ui_click');
                     const amount = 1000;
                     if ((player.gold || 0) < amount) {
                       setMessage("Not enough gold!");
@@ -1139,6 +1211,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 <button
                   onClick={async () => {
                     if (!onBankTransaction || loading) return;
+                    playSfx('ui_click');
                     const amount = player.gold || 0;
                     if (amount <= 0) {
                       setMessage("No gold to deposit!");
@@ -1167,6 +1240,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 <button
                   onClick={async () => {
                     if (!onBankTransaction || loading) return;
+                    playSfx('ui_click');
                     const amount = -100;
                     if ((player.bank_gold || 0) < 100) {
                       setMessage("Not enough gold in vault!");
@@ -1188,6 +1262,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 <button
                   onClick={async () => {
                     if (!onBankTransaction || loading) return;
+                    playSfx('ui_click');
                     const amount = -1000;
                     if ((player.bank_gold || 0) < 1000) {
                       setMessage("Not enough gold in vault!");
@@ -1209,6 +1284,7 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
                 <button
                   onClick={async () => {
                     if (!onBankTransaction || loading) return;
+                    playSfx('ui_click');
                     const amount = -(player.bank_gold || 0);
                     if (amount >= 0) {
                       setMessage("No gold in vault!");
@@ -1293,6 +1369,82 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
           </div>
         )}
 
+        {/* --- VIEW: ACHIEVEMENTS --- */}
+        {view === 'achievements' && (
+          <div className="flex flex-col gap-4 pb-4 pr-2">
+            <div className="text-center space-y-2 mb-4">
+              <Trophy size={48} className="text-yellow-500 mx-auto" />
+              <h3 className="text-xl font-bold text-zinc-300">
+                Trophies ({unlockedAchievements.size}/{MASTER_ACHIEVEMENTS.length})
+              </h3>
+              <p className="text-zinc-500 text-sm max-w-xs mx-auto">
+                Your earned achievements and milestones.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {MASTER_ACHIEVEMENTS.map((achievement) => {
+                const isUnlocked = unlockedAchievements.has(achievement.id);
+                
+                // Get icon component based on icon name
+                const getIcon = () => {
+                  switch (achievement.icon) {
+                    case 'ArrowDown':
+                      return <ArrowDown size={24} />;
+                    case 'Coins':
+                      return <Coins size={24} />;
+                    case 'Star':
+                      return <Star size={24} />;
+                    case 'Sword':
+                      return <Swords size={24} />;
+                    case 'Shield':
+                      return <Shield size={24} />;
+                    default:
+                      return <Trophy size={24} />;
+                  }
+                };
+
+                return (
+                  <div
+                    key={achievement.id}
+                    className={`bg-zinc-900 p-4 rounded-lg border ${
+                      isUnlocked
+                        ? 'border-yellow-500/50 bg-zinc-900'
+                        : 'border-zinc-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`p-3 rounded ${
+                        isUnlocked
+                          ? 'text-yellow-500'
+                          : 'text-zinc-600 opacity-20'
+                      }`}>
+                        {getIcon()}
+                      </div>
+                      <div className="flex-1">
+                        <h4 className={`font-bold text-lg ${
+                          isUnlocked
+                            ? 'text-zinc-100'
+                            : 'text-zinc-600'
+                        }`}>
+                          {achievement.title}
+                        </h4>
+                        <p className={`text-sm ${
+                          isUnlocked
+                            ? 'text-zinc-400'
+                            : 'text-zinc-600'
+                        }`}>
+                          {achievement.desc}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* --- VIEW: LEADERBOARD --- */}
         {view === 'leaderboard' && (
           <div className="flex flex-col gap-4 pb-4 pr-2">
@@ -1363,14 +1515,16 @@ export default function Town({ userId, player, onClose, onRest, onGoldUpgrade, o
       <div className="flex-shrink-0 border-t border-zinc-800 bg-zinc-950 px-6 py-4 mt-auto">
         {view !== 'main' ? (
           <button 
-            onClick={() => setView('main')} 
+            onClick={() => { playSfx('ui_click'); setView('main'); }} 
+            onMouseEnter={() => playHover()}
             className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white px-6 py-4 rounded-lg font-semibold transition-all active:scale-95"
           >
             <ArrowLeft size={20} /> Back
           </button>
         ) : (
           <button 
-            onClick={onClose} 
+            onClick={() => { playSfx('ui_click'); onClose(); }} 
+            onMouseEnter={() => playHover()}
             className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white px-6 py-4 rounded-lg font-semibold transition-all active:scale-95"
           >
             <ArrowLeft size={20} /> Return to the Deep

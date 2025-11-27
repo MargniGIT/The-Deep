@@ -1,10 +1,14 @@
-import { Terminal } from 'lucide-react';
+import { Terminal, Volume2, VolumeX } from 'lucide-react';
 
 interface GameLogProps {
   logs: string[];
+  isMuted?: boolean;
+  onToggleMute?: () => void;
+  onPlaySfx?: (name: string) => void;
+  onPlayHover?: () => void;
 }
 
-export default function GameLog({ logs = [] }: GameLogProps) {
+export default function GameLog({ logs = [], isMuted = false, onToggleMute, onPlaySfx, onPlayHover }: GameLogProps) {
   const safeLogs = Array.isArray(logs) ? logs : [];
 
   return (
@@ -141,6 +145,23 @@ export default function GameLog({ logs = [] }: GameLogProps) {
 
       {/* Bottom fade effect */}
       <div className="h-4 bg-gradient-to-t from-zinc-950 to-transparent pointer-events-none absolute bottom-0 left-0 right-0" />
+      
+      {/* Mute button - bottom right */}
+      {onToggleMute && (
+        <button
+          onClick={() => {
+            if (onPlaySfx) onPlaySfx('ui_click');
+            onToggleMute();
+          }}
+          onMouseEnter={() => {
+            if (onPlayHover) onPlayHover();
+          }}
+          className="absolute bottom-2 right-2 p-2 rounded hover:bg-zinc-800/50 transition-colors text-zinc-400 hover:text-zinc-200 z-10"
+          title={isMuted ? 'Unmute audio' : 'Mute audio'}
+        >
+          {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+        </button>
+      )}
     </div>
   );
 }

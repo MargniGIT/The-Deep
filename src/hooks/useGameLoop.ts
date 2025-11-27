@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { PlayerProfile } from '@/types';
 import { MASTER_TITLES } from '@/constants/titles';
+import { useAudio } from './useAudio';
 const MAX_LEVEL = 50;
 
 // Helper function to calculate training cost
@@ -98,6 +99,7 @@ export function useGameLoop(
   onProfileUpdate: (newProfile: PlayerProfile) => void,
   onEffect: (type: 'damage' | 'gold' | 'xp' | 'item' | 'ghost' | 'achievement', value?: number, achievementData?: { title: string; description: string }) => void
 ) {
+  const { playSfx } = useAudio();
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [graveDepth, setGraveDepth] = useState<number | null>(null);
@@ -190,7 +192,7 @@ export function useGameLoop(
     if (!userId) return;
     
     try {
-      // Check if title already exists in user_titles
+      // Check if title already exists (ignoreDuplicates pattern)
       const { data: existingTitle } = await supabase
         .from('user_titles')
         .select('title_id')
@@ -206,18 +208,19 @@ export function useGameLoop(
       // Insert new title
       const { error } = await supabase
         .from('user_titles')
-        .insert({
-          user_id: userId,
-          title_id: titleId
-        });
+        .insert({ user_id: userId, title_id: titleId });
       
-      if (error) {
+      if (!error) {
+        // Optional: Add a log or toast here like 'TITLE UNLOCKED: Survivor'
+        const titleLabel = MASTER_TITLES[titleId]?.label || titleId;
+        addLog(`TITLE UNLOCKED: ${titleLabel}`);
+      } else {
         console.error('Error unlocking title:', error);
       }
     } catch (err) {
       console.error('Error unlocking title (catch):', err);
     }
-  }, [userId]);
+  }, [userId, addLog]);
 
   // Helper function to check for ghost users at a given depth
   const checkForGhosts = useCallback(async (depth: number): Promise<string | null> => {
@@ -255,22 +258,47 @@ export function useGameLoop(
     }
 
     const fetchGrave = async () => {
-      const { data, error } = await supabase
-        .from('graves')
-        .select('depth')
-        .eq('user_id', userId)
-        .maybeSingle();
+      try {
+        const { data, error } = await supabase
+          .from('graves')
+          .select('depth')
+          .eq('user_id', userId)
+          .maybeSingle();
 
-      if (error) {
-        // Silently handle errors - don't interrupt gameplay
-        console.error('Error fetching grave:', error);
+        if (error) {
+          // Log detailed error information
+          const errorMessage = error.message || 'Unknown error';
+          const errorCode = error.code || 'NO_CODE';
+          const errorDetails = error.details || null;
+          const errorHint = error.hint || null;
+          
+          console.error('Error fetching grave:', {
+            message: errorMessage,
+            code: errorCode,
+            details: errorDetails,
+            hint: errorHint,
+            fullError: error
+          });
+          setGraveDepth(null);
+        } else if (data) {
+          setGraveDepth(data.depth);
+        } else {
+          setGraveDepth(null);
+        }
+        setCanRetrieve(false);
+      } catch (err) {
+        // Handle any unexpected errors
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        const errorStack = err instanceof Error ? err.stack : undefined;
+        
+        console.error('Error fetching grave (catch):', {
+          message: errorMessage,
+          stack: errorStack,
+          error: err
+        });
         setGraveDepth(null);
-      } else if (data) {
-        setGraveDepth(data.depth);
-      } else {
-        setGraveDepth(null);
+        setCanRetrieve(false);
       }
-      setCanRetrieve(false);
     };
 
     fetchGrave();
@@ -406,6 +434,7 @@ export function useGameLoop(
     }
     if (!player || loading) return;
 
+    playSfx('step');
     setLoading(true);
 
     try {
@@ -428,16 +457,6 @@ export function useGameLoop(
       
       // Track all-time best depth
       const newMaxDepth = Math.max(newDepth, player.max_depth || 0);
-
-      // Title: Survivor (reach depth 100)
-      if (newDepth >= 100 && (player.max_depth || 0) < 100) {
-        unlockTitle('survivor');
-      }
-
-      // Title: Deep Diver (reach depth 1000)
-      if (newDepth >= 1000 && (player.max_depth || 0) < 1000) {
-        unlockTitle('deep_diver');
-      }
 
       // Achievement: Deep Diver (reach depth 500)
       if (newDepth >= 500) {
@@ -498,6 +517,7 @@ export function useGameLoop(
       if (player.current_stamina <= 0) {
         exhaustionDamage = 10; // Explicit stamina punishment: 10 damage
         newHealth = Math.max(0, newHealth - exhaustionDamage);
+        playSfx('hit');
         onEffect('damage', exhaustionDamage);
         addLog('[!] You collapse from exhaustion. (-10 HP)');
         // Stamina stays at 0 when exhausted
@@ -532,6 +552,7 @@ export function useGameLoop(
         } else {
           logMessage = `You found a vein of gold! (+${goldFound} Gold)`;
         }
+        playSfx('gold');
         onEffect('gold', goldFound);
       }
 
@@ -574,6 +595,13 @@ export function useGameLoop(
               // For now, RPC handles basic stacking. Affixed items will be separate entries.
               const rarityTag = getRarityTag(randomItem);
               logMessage = `${rarityTag} You scavenged some debris. Found: ${randomItem.name}`;
+              // Check rarity for sound effect
+              const rarity = randomItem.rarity?.toLowerCase() || 'common';
+              if (rarity === 'legendary') {
+                playSfx('legendary_loot');
+              } else {
+                playSfx('rare_loot');
+              }
               onEffect('item');
             } else {
               logMessage = "You saw something, but couldn't reach it.";
@@ -672,6 +700,13 @@ export function useGameLoop(
               
               const rarityTag = getRarityTag(randomItem);
               logMessage = `${rarityTag} A treasure reveals itself! Found: ${fullName}`;
+              // Check rarity for sound effect
+              const rarity = randomItem.rarity?.toLowerCase() || 'common';
+              if (rarity === 'legendary') {
+                playSfx('legendary_loot');
+              } else {
+                playSfx('rare_loot');
+              }
               onEffect('item');
             } else {
               logMessage = `You saw a ${randomItem.name}, but couldn't reach it.`;
@@ -694,6 +729,7 @@ export function useGameLoop(
         if (!monster) {
           newHealth = Math.max(0, newHealth - 2);
           logMessage = "You tripped on a rock! (-2 HP)";
+          playSfx('hit');
           onEffect('damage', 2);
         } else {
           // --- BOSS CHECK ---
@@ -749,14 +785,24 @@ export function useGameLoop(
             const critText = critMultiplier > 1 ? ' [CRIT!]' : '';
             const bonusText = bonus > 0 ? ` [Bonus +${bonus} G]` : '';
             logMessage = `Defeated ${monster.name}!${critText} Took ${totalDmgTaken} dmg.`;
+            playSfx('hit');
             onEffect('damage', totalDmgTaken);
-            setTimeout(() => onEffect('gold', goldReward), 200);
+            setTimeout(() => {
+              playSfx('gold');
+              onEffect('gold', goldReward);
+            }, 200);
             setTimeout(() => onEffect('xp', monster.xp_reward), 400);
+            
+            // Title: Beast Slayer (defeat a boss)
+            if (monster.is_boss) {
+              unlockTitle('slayer');
+            }
           } else {
             // Mark combat death and store monster name
             deathCause = 'combat';
             killedByMonster = monster.name;
             logMessage = `YOU DIED fighting ${monster.name}.`;
+            playSfx('hit');
             onEffect('damage', 999);
           }
         }
@@ -958,6 +1004,16 @@ export function useGameLoop(
       const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
       if (error) throw error;
 
+      // Title: Survivor (reach depth 100)
+      if (newDepth >= 100) {
+        unlockTitle('survivor');
+      }
+
+      // Title: Deep Diver (reach depth 1000)
+      if (newDepth >= 1000) {
+        unlockTitle('deep_diver');
+      }
+
       // Achievement: Hoarder (accumulate 1000 gold)
       if (newGold >= 1000) {
         unlockAchievement('hoarder', 'Hoarder', 'Accumulated 1000 gold');
@@ -1086,6 +1142,13 @@ export function useGameLoop(
                   .eq('id', rpcResult.inventory_id);
               }
               logMessage = `You found a ${randomMaterial.name}!`;
+              // Check rarity for sound effect
+              const rarity = randomMaterial.rarity?.toLowerCase() || 'common';
+              if (rarity === 'legendary') {
+                playSfx('legendary_loot');
+              } else {
+                playSfx('rare_loot');
+              }
               onEffect('item');
             } else {
               logMessage = "You found something, but couldn't pick it up.";
@@ -1117,6 +1180,13 @@ export function useGameLoop(
                     .eq('id', rpcResult.inventory_id);
                 }
                 logMessage = `You found a ${randomItem.name}!`;
+                // Check rarity for sound effect
+                const rarity = randomItem.rarity?.toLowerCase() || 'common';
+                if (rarity === 'legendary') {
+                  playSfx('legendary_loot');
+                } else {
+                  playSfx('rare_loot');
+                }
                 onEffect('item');
               } else {
                 logMessage = "You found something, but couldn't pick it up.";
@@ -1150,6 +1220,7 @@ export function useGameLoop(
         if (!monster) {
           newHealth = Math.max(0, newHealth - 2);
           logMessage = "You tripped on a rock! (-2 damage)";
+          playSfx('hit');
           onEffect('damage', 2);
         } else {
           // Note: gear and set bonuses are already calculated above
@@ -1186,11 +1257,16 @@ export function useGameLoop(
             const critText = critMultiplier > 1 ? ' [CRIT!]' : '';
             const bonusText = bonus > 0 ? ` [Bonus +${bonus} G]` : '';
             logMessage = `Defeated ${monster.name}!${critText} Took ${totalDmgTaken} damage.`;
+            playSfx('hit');
             onEffect('damage', totalDmgTaken);
-            setTimeout(() => onEffect('gold', goldReward), 200);
+            setTimeout(() => {
+              playSfx('gold');
+              onEffect('gold', goldReward);
+            }, 200);
             setTimeout(() => onEffect('xp', monster.xp_reward), 400);
           } else {
             logMessage = `YOU DIED fighting ${monster.name}.`;
+            playSfx('hit');
             onEffect('damage', 999);
             // Death handling would be similar to handleDescend, but simplified for explore
             newHealth = maxHealth;
@@ -1290,6 +1366,7 @@ export function useGameLoop(
         if (!error) {
           onProfileUpdate({ ...player, ...updates });
           addLog(`Boss Defeated! +${goldReward} Gold, +${xpReward} XP`);
+          playSfx('gold');
           onEffect('gold', goldReward);
           onEffect('xp', xpReward);
           
@@ -1333,6 +1410,13 @@ export function useGameLoop(
                       .eq('id', rpcResult.inventory_id);
                   }
                   addLog('The King drops his vestment! [SET ITEM]');
+                  // Set items are typically rare, but check rarity anyway
+                  const rarity = ratHideVest.rarity?.toLowerCase() || 'common';
+                  if (rarity === 'legendary') {
+                    playSfx('legendary_loot');
+                  } else {
+                    playSfx('rare_loot');
+                  }
                   onEffect('item');
                 }
               } else {
@@ -1420,6 +1504,42 @@ export function useGameLoop(
     }
   }, [userId, player, activeBoss, onProfileUpdate, addLog, onEffect, unlockAchievement, unlockTitle]);
 
+  // Spawn boss for testing
+  const spawnBoss = useCallback(async () => {
+    if (activeBoss) {
+      addLog('A boss is already active!');
+      return;
+    }
+
+    try {
+      // Fetch a random boss from the database
+      const { data: bosses, error } = await supabase
+        .from('monsters')
+        .select('*')
+        .eq('is_boss', true)
+        .limit(10);
+
+      if (error) {
+        console.error('Error fetching bosses:', error);
+        addLog('Failed to spawn boss.');
+        return;
+      }
+
+      if (!bosses || bosses.length === 0) {
+        addLog('No bosses found in database.');
+        return;
+      }
+
+      // Pick a random boss
+      const randomBoss = bosses[Math.floor(Math.random() * bosses.length)];
+      setActiveBoss(randomBoss);
+      addLog(`A ${randomBoss.name} appears!`);
+    } catch (err) {
+      console.error('Error spawning boss:', err);
+      addLog('Failed to spawn boss.');
+    }
+  }, [activeBoss, addLog]);
+
   return { 
     handleDescend, 
     handleExplore, 
@@ -1433,6 +1553,7 @@ export function useGameLoop(
     addLog, 
     setGraveDepth,
     activeBoss,
-    resolveBossFight
+    resolveBossFight,
+    spawnBoss
   };
 }
